@@ -1,0 +1,2544 @@
+{
+ "_comment": "新账号示例数据模板（来自真实生成任务，2026-08-31 固化）。seed_sample_tasks 消费。",
+ "templates": {
+  "business": {
+   "cases": [
+    {
+     "case_id": "TC-001",
+     "title": "[1. 系统概述] 主流程-正向操作",
+     "module": "1. 系统概述",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-002",
+     "title": "[1. 系统概述] 必填项缺失-提交拦截",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-003",
+     "title": "[1. 系统概述] 越权访问-无权限角色",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-004",
+     "title": "[1. 系统概述] 业务规则-库存不为负",
+     "module": "1. 系统概述",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-005",
+     "title": "[1. 系统概述] 业务规则-金额对账一致",
+     "module": "1. 系统概述",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-006",
+     "title": "[1. 系统概述] 边界-金额精度/超大值",
+     "module": "1. 系统概述",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-007",
+     "title": "[1. 系统概述] 状态机-非法流转",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-008",
+     "title": "[2. 核心业务流] 主流程-正向操作",
+     "module": "2. 核心业务流",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-009",
+     "title": "[2. 核心业务流] 必填项缺失-提交拦截",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-010",
+     "title": "[2. 核心业务流] 越权访问-无权限角色",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-011",
+     "title": "[2. 核心业务流] 业务规则-库存不为负",
+     "module": "2. 核心业务流",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-012",
+     "title": "[2. 核心业务流] 业务规则-金额对账一致",
+     "module": "2. 核心业务流",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-013",
+     "title": "[2. 核心业务流] 边界-金额精度/超大值",
+     "module": "2. 核心业务流",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-014",
+     "title": "[2. 核心业务流] 状态机-非法流转",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-015",
+     "title": "[3. 模块功能点] 主流程-正向操作",
+     "module": "3. 模块功能点",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-016",
+     "title": "[3. 模块功能点] 必填项缺失-提交拦截",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-017",
+     "title": "[3. 模块功能点] 越权访问-无权限角色",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-018",
+     "title": "[3. 模块功能点] 业务规则-库存不为负",
+     "module": "3. 模块功能点",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-019",
+     "title": "[3. 模块功能点] 业务规则-金额对账一致",
+     "module": "3. 模块功能点",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-020",
+     "title": "[3. 模块功能点] 边界-金额精度/超大值",
+     "module": "3. 模块功能点",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-021",
+     "title": "[3. 模块功能点] 状态机-非法流转",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-022",
+     "title": "[3.1 采购模块] 主流程-正向操作",
+     "module": "3.1 采购模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-023",
+     "title": "[3.1 采购模块] 必填项缺失-提交拦截",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-024",
+     "title": "[3.1 采购模块] 越权访问-无权限角色",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-025",
+     "title": "[3.1 采购模块] 业务规则-库存不为负",
+     "module": "3.1 采购模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-026",
+     "title": "[3.1 采购模块] 业务规则-金额对账一致",
+     "module": "3.1 采购模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-027",
+     "title": "[3.1 采购模块] 边界-金额精度/超大值",
+     "module": "3.1 采购模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-028",
+     "title": "[3.1 采购模块] 状态机-非法流转",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-029",
+     "title": "[3.2 销售模块] 主流程-正向操作",
+     "module": "3.2 销售模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-030",
+     "title": "[3.2 销售模块] 必填项缺失-提交拦截",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-031",
+     "title": "[3.2 销售模块] 越权访问-无权限角色",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-032",
+     "title": "[3.2 销售模块] 业务规则-库存不为负",
+     "module": "3.2 销售模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-033",
+     "title": "[3.2 销售模块] 业务规则-金额对账一致",
+     "module": "3.2 销售模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-034",
+     "title": "[3.2 销售模块] 边界-金额精度/超大值",
+     "module": "3.2 销售模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-035",
+     "title": "[3.2 销售模块] 状态机-非法流转",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-036",
+     "title": "[3.3 库存模块] 主流程-正向操作",
+     "module": "3.3 库存模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-037",
+     "title": "[3.3 库存模块] 必填项缺失-提交拦截",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-038",
+     "title": "[3.3 库存模块] 越权访问-无权限角色",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-039",
+     "title": "[3.3 库存模块] 业务规则-库存不为负",
+     "module": "3.3 库存模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-040",
+     "title": "[3.3 库存模块] 业务规则-金额对账一致",
+     "module": "3.3 库存模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-041",
+     "title": "[3.3 库存模块] 边界-金额精度/超大值",
+     "module": "3.3 库存模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-042",
+     "title": "[3.3 库存模块] 状态机-非法流转",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-043",
+     "title": "[3.4 财务模块] 主流程-正向操作",
+     "module": "3.4 财务模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-044",
+     "title": "[3.4 财务模块] 必填项缺失-提交拦截",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-045",
+     "title": "[3.4 财务模块] 越权访问-无权限角色",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-046",
+     "title": "[3.4 财务模块] 业务规则-库存不为负",
+     "module": "3.4 财务模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-047",
+     "title": "[3.4 财务模块] 业务规则-金额对账一致",
+     "module": "3.4 财务模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-048",
+     "title": "[3.4 财务模块] 边界-金额精度/超大值",
+     "module": "3.4 财务模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-049",
+     "title": "[3.4 财务模块] 状态机-非法流转",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-050",
+     "title": "[3.5 报表模块] 主流程-正向操作",
+     "module": "3.5 报表模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-051",
+     "title": "[3.5 报表模块] 必填项缺失-提交拦截",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-052",
+     "title": "[3.5 报表模块] 越权访问-无权限角色",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-053",
+     "title": "[3.5 报表模块] 业务规则-库存不为负",
+     "module": "3.5 报表模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-054",
+     "title": "[3.5 报表模块] 业务规则-金额对账一致",
+     "module": "3.5 报表模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-055",
+     "title": "[3.5 报表模块] 边界-金额精度/超大值",
+     "module": "3.5 报表模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-056",
+     "title": "[3.5 报表模块] 状态机-非法流转",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-057",
+     "title": "[3.6 基础数据] 主流程-正向操作",
+     "module": "3.6 基础数据",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-058",
+     "title": "[3.6 基础数据] 必填项缺失-提交拦截",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-059",
+     "title": "[3.6 基础数据] 越权访问-无权限角色",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-060",
+     "title": "[3.6 基础数据] 业务规则-库存不为负",
+     "module": "3.6 基础数据",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-061",
+     "title": "[3.6 基础数据] 业务规则-金额对账一致",
+     "module": "3.6 基础数据",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-062",
+     "title": "[3.6 基础数据] 边界-金额精度/超大值",
+     "module": "3.6 基础数据",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-063",
+     "title": "[3.6 基础数据] 状态机-非法流转",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-064",
+     "title": "[4. 关键业务规则与约束] 主流程-正向操作",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-065",
+     "title": "[4. 关键业务规则与约束] 必填项缺失-提交拦截",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-066",
+     "title": "[4. 关键业务规则与约束] 越权访问-无权限角色",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-067",
+     "title": "[4. 关键业务规则与约束] 业务规则-库存不为负",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-068",
+     "title": "[4. 关键业务规则与约束] 业务规则-金额对账一致",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-069",
+     "title": "[4. 关键业务规则与约束] 边界-金额精度/超大值",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-070",
+     "title": "[4. 关键业务规则与约束] 状态机-非法流转",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-071",
+     "title": "[5. 测试关注点] 主流程-正向操作",
+     "module": "5. 测试关注点",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-072",
+     "title": "[5. 测试关注点] 必填项缺失-提交拦截",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-073",
+     "title": "[5. 测试关注点] 越权访问-无权限角色",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-074",
+     "title": "[5. 测试关注点] 业务规则-库存不为负",
+     "module": "5. 测试关注点",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-075",
+     "title": "[5. 测试关注点] 业务规则-金额对账一致",
+     "module": "5. 测试关注点",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-076",
+     "title": "[5. 测试关注点] 边界-金额精度/超大值",
+     "module": "5. 测试关注点",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-077",
+     "title": "[5. 测试关注点] 状态机-非法流转",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    }
+   ],
+   "report": {
+    "total": 77,
+    "by_type": {
+     "正向": 11,
+     "异常": 33,
+     "边界值": 22,
+     "场景组合": 11
+    },
+    "by_priority": {
+     "Priority.P0": 22,
+     "Priority.P1": 44,
+     "Priority.P2": 11
+    },
+    "abnormal_ratio": 0.43,
+    "modules": {
+     "1. 系统概述": 7,
+     "2. 核心业务流": 7,
+     "3. 模块功能点": 7,
+     "3.1 采购模块": 7,
+     "3.2 销售模块": 7,
+     "3.3 库存模块": 7,
+     "3.4 财务模块": 7,
+     "3.5 报表模块": 7,
+     "3.6 基础数据": 7,
+     "4. 关键业务规则与约束": 7,
+     "5. 测试关注点": 7
+    },
+    "struct_issues": [],
+    "quality_pass": true
+   },
+   "steps": [
+    {
+     "name": "parser",
+     "title": "解析规格",
+     "status": "completed",
+     "duration_ms": 0.2,
+     "output_summary": "解析得到 11 个测试单元"
+    },
+    {
+     "name": "generator",
+     "title": "AI 生成用例",
+     "status": "completed",
+     "duration_ms": 0.2,
+     "output_summary": "AI 生成 77 条测试用例（覆盖正向 / 异常 / 边界）"
+    },
+    {
+     "name": "reviewer",
+     "title": "质量校验",
+     "status": "completed",
+     "duration_ms": 0.2,
+     "output_summary": "质量报告：共 77 条，异常/边界占比 43%，结构校验通过"
+    },
+    {
+     "name": "exporter",
+     "title": "导出文件",
+     "status": "completed",
+     "duration_ms": 8.6,
+     "output_summary": "导出：xlsx, json, xmind"
+    }
+   ],
+   "duration_ms": 16.3,
+   "formats": "xlsx,json,xmind"
+  },
+  "api": {
+   "cases": [
+    {
+     "case_id": "TC-001",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 合法请求-正向下单",
+     "module": "订单对接API",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "后台已创建 App 且 appState=1，secret 正确",
+     "steps": [
+      "构造合法 dataStr（订单 JSON）",
+      "计算 sign=md5(dataStr+secret)",
+      "POST /other-api 携带 appId/action/dataStr/sign"
+     ],
+     "expected": "返回 code=200 status=success，ERP 生成对应订单",
+     "test_data": "正常订单参数"
+    },
+    {
+     "case_id": "TC-002",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 非法 appId-应用不存在/未启用",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用一个不存在或未启用的 appId",
+     "steps": [
+      "携带错误 appId 发送请求"
+     ],
+     "expected": "返回 code=404，提示账户不存在，不落地订单",
+     "test_data": "appId=invalid"
+    },
+    {
+     "case_id": "TC-003",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] sign 签名篡改-校验失败",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "正常 appId，但 dataStr 被篡改后未重算 sign",
+     "steps": [
+      "修改 dataStr 后不重新计算 sign",
+      "发送请求"
+     ],
+     "expected": "返回 sign 不一致，拒绝处理",
+     "test_data": "sign 错误"
+    },
+    {
+     "case_id": "TC-004",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 必填缺失-appId 为空",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "不传 appId 发送请求"
+     ],
+     "expected": "参数校验失败，返回错误",
+     "test_data": "appId 空"
+    },
+    {
+     "case_id": "TC-005",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 不合法 action-拒绝执行",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "action 传入不存在的动作名"
+     ],
+     "expected": "拒绝执行，返回错误",
+     "test_data": "action=unknown"
+    },
+    {
+     "case_id": "TC-006",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 边界-购买数量为 0/负数",
+     "module": "订单对接API",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "goodsBuyNum 传 0 或 -1"
+     ],
+     "expected": "校验失败或被拦截",
+     "test_data": "goodsBuyNum=-1"
+    },
+    {
+     "case_id": "TC-007",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 边界-超长字符串字段",
+     "module": "订单对接API",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "buyName 传 1000 字符"
+     ],
+     "expected": "长度校验或被截断处理",
+     "test_data": "超长输入"
+    },
+    {
+     "case_id": "TC-008",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 场景-下单→支付→发货→完成 状态机",
+     "module": "订单对接API",
+     "case_type": "场景组合",
+     "priority": "P0",
+     "pre_condition": "订单已通过接口写入 ERP",
+     "steps": [
+      "otherAddOrder 下单",
+      "otherPaymentOrder 支付",
+      "otherDeliverOrder 发货",
+      "otherFinishOrder 完成"
+     ],
+     "expected": "状态严格按序流转，最终订单完成且库存/财务联动正确",
+     "test_data": "全链路"
+    },
+    {
+     "case_id": "TC-009",
+     "title": "[订单对接主入口（dbshop/dbcart/shop 类型商城）] 场景-重复 orderSn 幂等",
+     "module": "订单对接API",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "用相同 orderSn 重复调用 otherAddOrder 两次"
+     ],
+     "expected": "第二次不重复生成 ERP 订单（幂等）",
+     "test_data": "重复 orderSn"
+    },
+    {
+     "case_id": "TC-010",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 合法请求-正向下单",
+     "module": "订单对接API",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "后台已创建 App 且 appState=1，secret 正确",
+     "steps": [
+      "构造合法 dataStr（订单 JSON）",
+      "计算 sign=md5(dataStr+secret)",
+      "POST /other-api 携带 appId/action/dataStr/sign"
+     ],
+     "expected": "返回 code=200 status=success，ERP 生成对应订单",
+     "test_data": "正常订单参数"
+    },
+    {
+     "case_id": "TC-011",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 非法 appId-应用不存在/未启用",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用一个不存在或未启用的 appId",
+     "steps": [
+      "携带错误 appId 发送请求"
+     ],
+     "expected": "返回 code=404，提示账户不存在，不落地订单",
+     "test_data": "appId=invalid"
+    },
+    {
+     "case_id": "TC-012",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] sign 签名篡改-校验失败",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "正常 appId，但 dataStr 被篡改后未重算 sign",
+     "steps": [
+      "修改 dataStr 后不重新计算 sign",
+      "发送请求"
+     ],
+     "expected": "返回 sign 不一致，拒绝处理",
+     "test_data": "sign 错误"
+    },
+    {
+     "case_id": "TC-013",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 必填缺失-appId 为空",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "不传 appId 发送请求"
+     ],
+     "expected": "参数校验失败，返回错误",
+     "test_data": "appId 空"
+    },
+    {
+     "case_id": "TC-014",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 不合法 action-拒绝执行",
+     "module": "订单对接API",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "action 传入不存在的动作名"
+     ],
+     "expected": "拒绝执行，返回错误",
+     "test_data": "action=unknown"
+    },
+    {
+     "case_id": "TC-015",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 边界-购买数量为 0/负数",
+     "module": "订单对接API",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "goodsBuyNum 传 0 或 -1"
+     ],
+     "expected": "校验失败或被拦截",
+     "test_data": "goodsBuyNum=-1"
+    },
+    {
+     "case_id": "TC-016",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 边界-超长字符串字段",
+     "module": "订单对接API",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "buyName 传 1000 字符"
+     ],
+     "expected": "长度校验或被截断处理",
+     "test_data": "超长输入"
+    },
+    {
+     "case_id": "TC-017",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 场景-下单→支付→发货→完成 状态机",
+     "module": "订单对接API",
+     "case_type": "场景组合",
+     "priority": "P0",
+     "pre_condition": "订单已通过接口写入 ERP",
+     "steps": [
+      "otherAddOrder 下单",
+      "otherPaymentOrder 支付",
+      "otherDeliverOrder 发货",
+      "otherFinishOrder 完成"
+     ],
+     "expected": "状态严格按序流转，最终订单完成且库存/财务联动正确",
+     "test_data": "全链路"
+    },
+    {
+     "case_id": "TC-018",
+     "title": "[订单对接入口（other 自定义商城类型，推荐测试用）] 场景-重复 orderSn 幂等",
+     "module": "订单对接API",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "用相同 orderSn 重复调用 otherAddOrder 两次"
+     ],
+     "expected": "第二次不重复生成 ERP 订单（幂等）",
+     "test_data": "重复 orderSn"
+    }
+   ],
+   "report": {
+    "total": 18,
+    "by_type": {
+     "正向": 2,
+     "异常": 8,
+     "边界值": 4,
+     "场景组合": 4
+    },
+    "by_priority": {
+     "Priority.P0": 4,
+     "Priority.P1": 10,
+     "Priority.P2": 4
+    },
+    "abnormal_ratio": 0.44,
+    "modules": {
+     "订单对接API": 18
+    },
+    "struct_issues": [],
+    "quality_pass": true
+   },
+   "steps": [
+    {
+     "name": "parser",
+     "title": "解析规格",
+     "status": "completed",
+     "duration_ms": 0.2,
+     "output_summary": "解析得到 2 个测试单元"
+    },
+    {
+     "name": "generator",
+     "title": "AI 生成用例",
+     "status": "completed",
+     "duration_ms": 0.3,
+     "output_summary": "AI 生成 18 条测试用例（覆盖正向 / 异常 / 边界）"
+    },
+    {
+     "name": "reviewer",
+     "title": "质量校验",
+     "status": "completed",
+     "duration_ms": 0.1,
+     "output_summary": "质量报告：共 18 条，异常/边界占比 44%，结构校验通过"
+    },
+    {
+     "name": "exporter",
+     "title": "导出文件",
+     "status": "completed",
+     "duration_ms": 125.0,
+     "output_summary": "导出：xlsx, json"
+    }
+   ],
+   "duration_ms": 132.8,
+   "formats": "xlsx,json"
+  },
+  "xmind": {
+   "cases": [
+    {
+     "case_id": "TC-001",
+     "title": "[1. 系统概述] 主流程-正向操作",
+     "module": "1. 系统概述",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-002",
+     "title": "[1. 系统概述] 必填项缺失-提交拦截",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-003",
+     "title": "[1. 系统概述] 越权访问-无权限角色",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-004",
+     "title": "[1. 系统概述] 业务规则-库存不为负",
+     "module": "1. 系统概述",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-005",
+     "title": "[1. 系统概述] 业务规则-金额对账一致",
+     "module": "1. 系统概述",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-006",
+     "title": "[1. 系统概述] 边界-金额精度/超大值",
+     "module": "1. 系统概述",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-007",
+     "title": "[1. 系统概述] 状态机-非法流转",
+     "module": "1. 系统概述",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-008",
+     "title": "[2. 核心业务流] 主流程-正向操作",
+     "module": "2. 核心业务流",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-009",
+     "title": "[2. 核心业务流] 必填项缺失-提交拦截",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-010",
+     "title": "[2. 核心业务流] 越权访问-无权限角色",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-011",
+     "title": "[2. 核心业务流] 业务规则-库存不为负",
+     "module": "2. 核心业务流",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-012",
+     "title": "[2. 核心业务流] 业务规则-金额对账一致",
+     "module": "2. 核心业务流",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-013",
+     "title": "[2. 核心业务流] 边界-金额精度/超大值",
+     "module": "2. 核心业务流",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-014",
+     "title": "[2. 核心业务流] 状态机-非法流转",
+     "module": "2. 核心业务流",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-015",
+     "title": "[3. 模块功能点] 主流程-正向操作",
+     "module": "3. 模块功能点",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-016",
+     "title": "[3. 模块功能点] 必填项缺失-提交拦截",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-017",
+     "title": "[3. 模块功能点] 越权访问-无权限角色",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-018",
+     "title": "[3. 模块功能点] 业务规则-库存不为负",
+     "module": "3. 模块功能点",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-019",
+     "title": "[3. 模块功能点] 业务规则-金额对账一致",
+     "module": "3. 模块功能点",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-020",
+     "title": "[3. 模块功能点] 边界-金额精度/超大值",
+     "module": "3. 模块功能点",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-021",
+     "title": "[3. 模块功能点] 状态机-非法流转",
+     "module": "3. 模块功能点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-022",
+     "title": "[3.1 采购模块] 主流程-正向操作",
+     "module": "3.1 采购模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-023",
+     "title": "[3.1 采购模块] 必填项缺失-提交拦截",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-024",
+     "title": "[3.1 采购模块] 越权访问-无权限角色",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-025",
+     "title": "[3.1 采购模块] 业务规则-库存不为负",
+     "module": "3.1 采购模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-026",
+     "title": "[3.1 采购模块] 业务规则-金额对账一致",
+     "module": "3.1 采购模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-027",
+     "title": "[3.1 采购模块] 边界-金额精度/超大值",
+     "module": "3.1 采购模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-028",
+     "title": "[3.1 采购模块] 状态机-非法流转",
+     "module": "3.1 采购模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-029",
+     "title": "[3.2 销售模块] 主流程-正向操作",
+     "module": "3.2 销售模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-030",
+     "title": "[3.2 销售模块] 必填项缺失-提交拦截",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-031",
+     "title": "[3.2 销售模块] 越权访问-无权限角色",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-032",
+     "title": "[3.2 销售模块] 业务规则-库存不为负",
+     "module": "3.2 销售模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-033",
+     "title": "[3.2 销售模块] 业务规则-金额对账一致",
+     "module": "3.2 销售模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-034",
+     "title": "[3.2 销售模块] 边界-金额精度/超大值",
+     "module": "3.2 销售模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-035",
+     "title": "[3.2 销售模块] 状态机-非法流转",
+     "module": "3.2 销售模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-036",
+     "title": "[3.3 库存模块] 主流程-正向操作",
+     "module": "3.3 库存模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-037",
+     "title": "[3.3 库存模块] 必填项缺失-提交拦截",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-038",
+     "title": "[3.3 库存模块] 越权访问-无权限角色",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-039",
+     "title": "[3.3 库存模块] 业务规则-库存不为负",
+     "module": "3.3 库存模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-040",
+     "title": "[3.3 库存模块] 业务规则-金额对账一致",
+     "module": "3.3 库存模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-041",
+     "title": "[3.3 库存模块] 边界-金额精度/超大值",
+     "module": "3.3 库存模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-042",
+     "title": "[3.3 库存模块] 状态机-非法流转",
+     "module": "3.3 库存模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-043",
+     "title": "[3.4 财务模块] 主流程-正向操作",
+     "module": "3.4 财务模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-044",
+     "title": "[3.4 财务模块] 必填项缺失-提交拦截",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-045",
+     "title": "[3.4 财务模块] 越权访问-无权限角色",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-046",
+     "title": "[3.4 财务模块] 业务规则-库存不为负",
+     "module": "3.4 财务模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-047",
+     "title": "[3.4 财务模块] 业务规则-金额对账一致",
+     "module": "3.4 财务模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-048",
+     "title": "[3.4 财务模块] 边界-金额精度/超大值",
+     "module": "3.4 财务模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-049",
+     "title": "[3.4 财务模块] 状态机-非法流转",
+     "module": "3.4 财务模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-050",
+     "title": "[3.5 报表模块] 主流程-正向操作",
+     "module": "3.5 报表模块",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-051",
+     "title": "[3.5 报表模块] 必填项缺失-提交拦截",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-052",
+     "title": "[3.5 报表模块] 越权访问-无权限角色",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-053",
+     "title": "[3.5 报表模块] 业务规则-库存不为负",
+     "module": "3.5 报表模块",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-054",
+     "title": "[3.5 报表模块] 业务规则-金额对账一致",
+     "module": "3.5 报表模块",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-055",
+     "title": "[3.5 报表模块] 边界-金额精度/超大值",
+     "module": "3.5 报表模块",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-056",
+     "title": "[3.5 报表模块] 状态机-非法流转",
+     "module": "3.5 报表模块",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-057",
+     "title": "[3.6 基础数据] 主流程-正向操作",
+     "module": "3.6 基础数据",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-058",
+     "title": "[3.6 基础数据] 必填项缺失-提交拦截",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-059",
+     "title": "[3.6 基础数据] 越权访问-无权限角色",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-060",
+     "title": "[3.6 基础数据] 业务规则-库存不为负",
+     "module": "3.6 基础数据",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-061",
+     "title": "[3.6 基础数据] 业务规则-金额对账一致",
+     "module": "3.6 基础数据",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-062",
+     "title": "[3.6 基础数据] 边界-金额精度/超大值",
+     "module": "3.6 基础数据",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-063",
+     "title": "[3.6 基础数据] 状态机-非法流转",
+     "module": "3.6 基础数据",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-064",
+     "title": "[4. 关键业务规则与约束] 主流程-正向操作",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-065",
+     "title": "[4. 关键业务规则与约束] 必填项缺失-提交拦截",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-066",
+     "title": "[4. 关键业务规则与约束] 越权访问-无权限角色",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-067",
+     "title": "[4. 关键业务规则与约束] 业务规则-库存不为负",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-068",
+     "title": "[4. 关键业务规则与约束] 业务规则-金额对账一致",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-069",
+     "title": "[4. 关键业务规则与约束] 边界-金额精度/超大值",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-070",
+     "title": "[4. 关键业务规则与约束] 状态机-非法流转",
+     "module": "4. 关键业务规则与约束",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    },
+    {
+     "case_id": "TC-071",
+     "title": "[5. 测试关注点] 主流程-正向操作",
+     "module": "5. 测试关注点",
+     "case_type": "正向",
+     "priority": "P0",
+     "pre_condition": "登录具备该模块权限的账号",
+     "steps": [
+      "进入模块",
+      "完成核心正向操作"
+     ],
+     "expected": "操作成功，数据正确落库",
+     "test_data": "正常数据"
+    },
+    {
+     "case_id": "TC-072",
+     "title": "[5. 测试关注点] 必填项缺失-提交拦截",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "关键字段留空提交"
+     ],
+     "expected": "前后端校验拦截，提示必填",
+     "test_data": "空字段"
+    },
+    {
+     "case_id": "TC-073",
+     "title": "[5. 测试关注点] 越权访问-无权限角色",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "使用无该模块权限的账号",
+     "steps": [
+      "直接访问模块 URL / 操作"
+     ],
+     "expected": "被拦截或提示无权限",
+     "test_data": "越权账号"
+    },
+    {
+     "case_id": "TC-074",
+     "title": "[5. 测试关注点] 业务规则-库存不为负",
+     "module": "5. 测试关注点",
+     "case_type": "边界值",
+     "priority": "P0",
+     "pre_condition": "",
+     "steps": [
+      "出库数量大于当前可用库存"
+     ],
+     "expected": "拦截，不允许负库存",
+     "test_data": "超库存出库"
+    },
+    {
+     "case_id": "TC-075",
+     "title": "[5. 测试关注点] 业务规则-金额对账一致",
+     "module": "5. 测试关注点",
+     "case_type": "场景组合",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "完成一笔业务",
+      "核对库存/财务/报表三方数据"
+     ],
+     "expected": "数量与金额三方一致",
+     "test_data": "对账"
+    },
+    {
+     "case_id": "TC-076",
+     "title": "[5. 测试关注点] 边界-金额精度/超大值",
+     "module": "5. 测试关注点",
+     "case_type": "边界值",
+     "priority": "P2",
+     "pre_condition": "",
+     "steps": [
+      "金额输入超长小数或超大值"
+     ],
+     "expected": "精度控制或拦截",
+     "test_data": "金额边界"
+    },
+    {
+     "case_id": "TC-077",
+     "title": "[5. 测试关注点] 状态机-非法流转",
+     "module": "5. 测试关注点",
+     "case_type": "异常",
+     "priority": "P1",
+     "pre_condition": "",
+     "steps": [
+      "跳过中间状态直接完成/回退"
+     ],
+     "expected": "状态机拒绝非法跳转",
+     "test_data": "状态越级"
+    }
+   ],
+   "report": {
+    "total": 77,
+    "by_type": {
+     "正向": 11,
+     "异常": 33,
+     "边界值": 22,
+     "场景组合": 11
+    },
+    "by_priority": {
+     "Priority.P0": 22,
+     "Priority.P1": 44,
+     "Priority.P2": 11
+    },
+    "abnormal_ratio": 0.43,
+    "modules": {
+     "1. 系统概述": 7,
+     "2. 核心业务流": 7,
+     "3. 模块功能点": 7,
+     "3.1 采购模块": 7,
+     "3.2 销售模块": 7,
+     "3.3 库存模块": 7,
+     "3.4 财务模块": 7,
+     "3.5 报表模块": 7,
+     "3.6 基础数据": 7,
+     "4. 关键业务规则与约束": 7,
+     "5. 测试关注点": 7
+    },
+    "struct_issues": [],
+    "quality_pass": true
+   },
+   "steps": [
+    {
+     "name": "parser",
+     "title": "解析规格",
+     "status": "completed",
+     "duration_ms": 0.2,
+     "output_summary": "解析得到 11 个测试单元"
+    },
+    {
+     "name": "generator",
+     "title": "AI 生成用例",
+     "status": "completed",
+     "duration_ms": 0.3,
+     "output_summary": "AI 生成 77 条测试用例（覆盖正向 / 异常 / 边界）"
+    },
+    {
+     "name": "reviewer",
+     "title": "质量校验",
+     "status": "completed",
+     "duration_ms": 0.1,
+     "output_summary": "质量报告：共 77 条，异常/边界占比 43%，结构校验通过"
+    },
+    {
+     "name": "exporter",
+     "title": "导出文件",
+     "status": "completed",
+     "duration_ms": 168.6,
+     "output_summary": "导出：xlsx, json, xmind"
+    }
+   ],
+   "duration_ms": 178.2,
+   "formats": "xlsx,json,xmind"
+  }
+ },
+ "categories": [
+  {
+   "name": "Web 应用",
+   "tasks": [
+    {
+     "name": "示例 · DBERP 后台业务流程",
+     "template": "business",
+     "kind": "business",
+     "summary": "DBERP 进销存后台业务需求规格（登录/采购/销售/库存/报表）",
+     "duration_ms": 16.3
+    },
+    {
+     "name": "示例 · 电商下单主流程",
+     "template": "business",
+     "kind": "business",
+     "summary": "电商下单主流程需求：浏览-加购-结算-支付-发货",
+     "duration_ms": 18.7
+    }
+   ]
+  },
+  {
+   "name": "接口测试",
+   "tasks": [
+    {
+     "name": "示例 · DBERP 订单对接 API",
+     "template": "api",
+     "kind": "api",
+     "summary": "DBERP 订单对接接口文档：创建/查询/取消订单等 18 个用例",
+     "duration_ms": 14.2
+    },
+    {
+     "name": "示例 · 登录接口异常覆盖",
+     "template": "api",
+     "kind": "api",
+     "summary": "登录接口异常场景：错误密码/锁定/过期 Token/越权",
+     "duration_ms": 15.1
+    }
+   ]
+  },
+  {
+   "name": "文档解析",
+   "tasks": [
+    {
+     "name": "示例 · XMind 思维导图转用例",
+     "template": "xmind",
+     "kind": "business",
+     "summary": "XMind 测试思维导图上传 → 两段式解析生成 77 条用例",
+     "duration_ms": 178.2
+    },
+    {
+     "name": "示例 · 需求文档两段式解析",
+     "template": "business",
+     "kind": "business",
+     "summary": "含截图的需求文档 → 视觉模型解读 → 用例生成",
+     "duration_ms": 152.6
+    }
+   ]
+  }
+ ]
+}

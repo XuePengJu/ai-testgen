@@ -1,0 +1,147 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "DBERP 进销存 - 订单对接 API（逆向还原）",
+    "version": "V1.3",
+    "description": "基于服务器源码 module/Api 逆向还原的接口规格。DBERP 官方未提供 Swagger，此文档由测试工程师根据 IndexController / ApiForm / module.config.php 还原，作为 AI 测试用例生成器的输入样例。\n\n鉴权：应用级 appId + appAccessSecret（非 cookie/session）。\n- other（自定义商城）类型：sign = md5(dataStr + appAccessSecret)，dataStr 为明文 JSON。\n- dbshop/dbcart/shop 类型：dataStr 用 appAccessSecret 做 AES 解密。",
+    "contact": { "name": "测试作品集逆向还原" }
+  },
+  "servers": [
+    { "url": "https://erp.agentest.vip", "description": "生产环境（阿里云）" }
+  ],
+  "paths": {
+    "/api": {
+      "post": {
+        "summary": "订单对接主入口（dbshop/dbcart/shop 类型商城）",
+        "description": "单一入口，通过 action 参数区分操作。dataStr 字段为 AES 加密（密钥=appAccessSecret）后的订单 JSON。",
+        "operationId": "apiIndex",
+        "tags": ["订单对接"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/ApiRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "统一 JSON 返回",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } }
+          }
+        }
+      }
+    },
+    "/other-api": {
+      "post": {
+        "summary": "订单对接入口（other 自定义商城类型，推荐测试用）",
+        "description": "与 /api 同构，但 dataStr 为明文 JSON，sign = md5(dataStr + appAccessSecret)。最适合做接口自动化与签名安全测试。",
+        "operationId": "otherApiIndex",
+        "tags": ["订单对接"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/ApiRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "统一 JSON 返回",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiRequest": {
+        "type": "object",
+        "required": ["appId", "action", "dataStr"],
+        "properties": {
+          "appId": {
+            "type": "string",
+            "description": "应用访问 ID，对应后台创建的 App 的 appAccessId。无效或 appState!=1 时返回 code=404。",
+            "maxLength": 30,
+            "example": "testapp001"
+          },
+          "action": {
+            "type": "string",
+            "description": "操作动作。other 类型前缀 other；dbshop 类型无前缀。",
+            "enum": [
+              "addOrder", "cancelOrder", "deleteOrder",
+              "paymentOrder", "deliverOrder", "finishOrder",
+              "dbshop3PaymentOrder", "dbshop3DeliverOrder",
+              "otherAddOrder", "otherCancelOrder", "otherDeleteOrder",
+              "otherPaymentOrder", "otherDeliverOrder", "otherFinishOrder"
+            ],
+            "example": "otherAddOrder"
+          },
+          "dataStr": {
+            "type": "string",
+            "description": "业务数据。other 类型为明文 JSON 字符串（OrderPayload）；dbshop 类型为 AES 加密串。",
+            "example": "{\"order\":{...},\"orderGoods\":[...],\"orderAddress\":{...}}"
+          },
+          "sign": {
+            "type": "string",
+            "description": "签名。other 类型必填，sign = md5(dataStr + appAccessSecret)；dbshop 类型可空。",
+            "example": "9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c"
+          }
+        }
+      },
+      "OrderPayload": {
+        "type": "object",
+        "description": "dataStr 内部的订单业务结构（other 类型为明文）",
+        "required": ["order", "orderGoods", "orderAddress"],
+        "properties": {
+          "order": {
+            "type": "object",
+            "description": "订单主信息",
+            "properties": {
+              "orderSn": { "type": "string", "description": "外部订单号（商城侧唯一）", "example": "SO20260826001" },
+              "orderGoodsAmount": { "type": "number", "description": "订单商品总额", "example": 199.00 },
+              "orderAmount": { "type": "number", "description": "订单实付金额", "example": 199.00 },
+              "buyName": { "type": "string", "description": "买家姓名", "example": "张三" },
+              "buyPhone": { "type": "string", "description": "买家手机号", "example": "13800000000" },
+              "orderRemark": { "type": "string", "description": "订单备注", "example": "尽快发货" }
+            }
+          },
+          "orderGoods": {
+            "type": "array",
+            "description": "订单商品明细（至少 1 条）",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goodsId": { "type": "integer", "description": "商品 ID（ERP 侧）", "example": 1001 },
+                "goodsName": { "type": "string", "description": "商品名称", "example": "测试商品A" },
+                "goodsPrice": { "type": "number", "description": "商品单价", "example": 99.50 },
+                "goodsBuyNum": { "type": "integer", "description": "购买数量（应 > 0）", "example": 2 }
+              }
+            }
+          },
+          "orderAddress": {
+            "type": "object",
+            "description": "收货地址",
+            "properties": {
+              "regionId": { "type": "integer", "description": "地区 ID", "example": 1 },
+              "addressContacts": { "type": "string", "description": "联系人", "example": "张三" },
+              "addressPhone": { "type": "string", "description": "联系电话", "example": "13800000000" },
+              "addressDetail": { "type": "string", "description": "详细地址", "example": "郑州市金水区xx路1号" }
+            }
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer", "description": "200 成功，404 应用不存在/签名不一致", "example": 200 },
+          "status": { "type": "string", "enum": ["success", "error"], "example": "success" },
+          "message": { "type": "string", "description": "提示信息", "example": "" },
+          "result": { "type": "object", "description": "业务结果（如新生成的 ERP 订单 ID 等）", "example": {} }
+        }
+      }
+    }
+  }
+}

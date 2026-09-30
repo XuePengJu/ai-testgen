@@ -1,0 +1,52 @@
+{
+  "steps": 22,
+  "total_ms": 67136,
+  "llm_total_ms": 54730,
+  "llm_pct": 81.5,
+  "snapshot_pct": 0.1,
+  "browser_pct": 18.4,
+  "step_ms": {
+    "n": 22,
+    "sum": 67125,
+    "avg": 3051,
+    "p50": 2222,
+    "p95": 9435
+  },
+  "snapshot_ms": {
+    "n": 22,
+    "sum": 57,
+    "avg": 2,
+    "p50": 2,
+    "p95": 4
+  },
+  "llm_ms": {
+    "n": 22,
+    "sum": 54719,
+    "avg": 2487,
+    "p50": 1588,
+    "p95": 9268
+  },
+  "llm_in_chars": {
+    "n": 22,
+    "sum": 42418,
+    "avg": 1928,
+    "p50": 1717,
+    "p95": 2482
+  },
+  "llm_out_chars": {
+    "n": 22,
+    "sum": 11657,
+    "avg": 529,
+    "p50": 117,
+    "p95": 4310
+  },
+  "actions": {
+    "browser_navigate": 19,
+    "submit_cases": 2,
+    "browser_click": 1,
+    "browser_snapshot": 1
+  },
+  "parse_errors": 0,
+  "danger_blocked": 0,
+  "repeats": 0
+}

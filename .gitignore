@@ -1,0 +1,49 @@
+# 环境变量（含密钥，切勿提交）
+.env
+.env.server
+
+# 本地部署脚本（含服务器 IP / SSH 密钥路径，不入库）
+scripts/deploy_frontend.sh
+
+# 运行时数据库（SQLAlchemy 自动建表，无需纳入版本控制）
+app.db
+*.db
+
+# 运行时生成目录
+outputs/
+uploads/
+
+# 运维日志（M10 落盘滚动日志，运行产物不入库）
+logs/
+
+# 前端构建产物（不入库，本地构建后打包上传服务器部署）
+frontend/dist/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+# pytest --basetemp 落到工作区内的临时目录（沙箱删除保护要求，不进版本控制）
+.pytest_tmp/
+.tmp-pytest/
+.venv/
+venv/
+
+# 系统/编辑器
+.DS_Store
+.idea/
+.vscode/
+.trae/
+# 本地向量库数据（Chroma 持久化，不入库）
+vectors/
+
+# M0 平台自身质量量化数据（聚合结果与历史趋势，运行产物不入库）
+quality_data/
+
+# Vite 构建临时产物（vite.config.ts 时间戳文件）
+frontend/vite.config.ts.timestamp-*.mjs
+
+# pytest 覆盖率产物
+.coverage

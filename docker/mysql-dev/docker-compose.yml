@@ -1,0 +1,43 @@
+# 本地开发用 MySQL（Docker）——与线上库（地址见 .env，不写入文档）完全隔离
+#
+# 为什么要隔离：
+#   1) llm_configs 表里保存的「模型配置」优先级高于环境变量，共库会导致
+#      本地（Ollama bge-m3）与线上（百炼 text-embedding-v3）的配置互相覆盖；
+#   2) 两个 embedding 模型的向量空间不同，混在一个知识库里检索结果无意义。
+#
+# 用法：bash scripts/db_local.sh up | down | logs | cli | status | reset
+services:
+  mysql-dev:
+    image: mysql:5.7
+    # 官方 mysql:5.7 无 linux/arm64 镜像，用 Rosetta 模拟 amd64，
+    # 目的：与线上 5.7.40 保持同版本，避免「本地能建表、线上报错」。
+    # 若本机没开 Rosetta 或嫌慢，把上面 image 改成 mysql:8.0 并删掉本行（8.0 原生 arm64）。
+    platform: linux/amd64
+    container_name: aitf-mysql-dev
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: aitf_root_dev
+      MYSQL_DATABASE: ai-testflow
+      MYSQL_USER: aitf
+      MYSQL_PASSWORD: aitf_dev_2026
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --max_connections=200
+    volumes:
+      - aitf-mysql-data:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping 返回 "mysqld is alive" 即健康；密码需与 MYSQL_ROOT_PASSWORD 一致
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-paitf_root_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  aitf-mysql-data:
+    name: aitf-mysql-data

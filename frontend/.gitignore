@@ -1,0 +1,5 @@
+# 依赖不入库（dist 构建产物入库：服务器 pull 即生效、免装 Node）
+node_modules
+*.local
+.DS_Store
+*.tsbuildinfo

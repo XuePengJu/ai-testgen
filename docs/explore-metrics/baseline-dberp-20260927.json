@@ -1,0 +1,55 @@
+{
+  "steps": 21,
+  "total_ms": 56824,
+  "llm_total_ms": 44980,
+  "llm_pct": 79.2,
+  "snapshot_pct": 0.1,
+  "browser_pct": 20.7,
+  "step_ms": {
+    "n": 21,
+    "sum": 56815,
+    "avg": 2705,
+    "p50": 2100,
+    "p95": 5352
+  },
+  "snapshot_ms": {
+    "n": 21,
+    "sum": 66,
+    "avg": 3,
+    "p50": 3,
+    "p95": 5
+  },
+  "llm_ms": {
+    "n": 21,
+    "sum": 44968,
+    "avg": 2141,
+    "p50": 1656,
+    "p95": 4478
+  },
+  "llm_in_chars": {
+    "n": 21,
+    "sum": 39366,
+    "avg": 1874,
+    "p50": 2031,
+    "p95": 2427
+  },
+  "llm_out_chars": {
+    "n": 21,
+    "sum": 5889,
+    "avg": 280,
+    "p50": 95,
+    "p95": 151
+  },
+  "actions": {
+    "browser_navigate": 8,
+    "browser_click": 5,
+    "browser_back": 3,
+    "browser_fill": 2,
+    "browser_snapshot": 2,
+    "browser_screenshot": 1,
+    "submit_cases": 1
+  },
+  "parse_errors": 0,
+  "danger_blocked": 0,
+  "repeats": 0
+}
