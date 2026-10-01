@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Text, DateTime, Boolean
+from sqlalchemy import String, Integer, Text, DateTime, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -47,10 +47,18 @@ class KnowledgeBase(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # P0 记忆改造：个人记忆库标记（每人至多一个，私密可见）
+    is_personal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
 
 class Knowledge(Base):
     """文档条目：一个入库文件，状态机全程可见。"""
     __tablename__ = "knowledges"
+    # P0 记忆改造：source_key 幂等覆盖键的唯一索引（显式命名，跨方言一致；
+    # 老库由 app/core/db.py 迁移幂等补建）
+    __table_args__ = (
+        Index("uq_knowledges_source_key", "source_key", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_nid)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
@@ -75,6 +83,8 @@ class Knowledge(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
     wiki_summary: Mapped[str | None] = mapped_column(Text, default="")
     wiki_category: Mapped[str | None] = mapped_column(String(50), default="")
+    # P0 记忆改造：幂等覆盖键（同一 source_key 重复入库时覆盖旧行；非记忆/附件文档为 NULL）
+    source_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class Chunk(Base):

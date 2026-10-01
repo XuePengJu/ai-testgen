@@ -19,6 +19,7 @@ os.environ["ENV"] = "dev"
 os.environ["DASHSCOPE_API_KEY"] = ""             # 无真实模型配置
 os.environ["AITF_ALLOW_DEMO"] = "1"              # 存量用例覆盖「演示模式」路径（新默认=0 不静默兜底）
 os.environ["API_ENCRYPT"] = "0"                  # 存量用例走明文；加密场景由 test_crypto 用 monkeypatch 开启
+os.environ.setdefault("AITF_SCHEDULER", "0")     # 测试环境永不启动后台调度器（setdefault 允许显式 env 覆盖）
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

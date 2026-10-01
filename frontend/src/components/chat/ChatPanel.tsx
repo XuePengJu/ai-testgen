@@ -8,32 +8,61 @@
  * V4：图标改用 lucide-react（纸飞机/灯泡/附件/停止）。
  * V2.10：输入框为唯一入口 —— 挂载「迭代引用 chip」时本次发送走 iterate（基于旧任务合并用例），
  *        无 chip 时为新建任务；chip 由详情页「继续优化」或会话内任务卡挂载。
+ * V6.0：新增「存入记忆库」手动按钮（Brain，整理中转圈）；个人记忆库强制勾选（🧠 徽章 + 不可取消）；
+ *       附件格式改由 /knowledge/supported-formats 动态下发（失败回落硬编码兜底值）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Paperclip, Lightbulb, Send, Square, Library, PenLine } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Brain, Paperclip, Lightbulb, Send, Square, Library, PenLine } from "lucide-react";
 import { useChatStore } from "../../store/chatStore";
 import { useTaskStore } from "../../store/taskStore";
 import { api, API, toast } from "../../api/client";
-import type { ChatDraft } from "../../types";
+import type { ChatDraft, KbBaseItem } from "../../types";
+import { useAuth } from "../../hooks/useAuth";
 import MessageView from "./MessageView";
 import PromptEditorModal from "./PromptEditorModal";
 import { groupByChain } from "../../utils/taskChain";
-
-/** V5.8 知识库选择器条目（/api/knowledge/bases 返回的精简字段） */
-interface KbItem {
-  id: string;
-  name: string;
-  doc_count?: number;
-}
 
 function fmtSize(b: number): string {
   return b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(2) + " MB";
 }
 
-/** 允许上传的文档格式（与后端 doc_extract.SUPPORTED_EXTS 保持一致）；
+/** 允许上传的文档格式兜底值（/knowledge/supported-formats 拉取失败时回落，与后端 doc_extract 对齐）；
  *  不设 input accept 属性：macOS Chrome 对 .md 等动态 UTI 扩展名会整体置灰（间歇性），格式交给 ACCEPT_RE 校验 */
-const ACCEPT_HINT = "docx / pdf / md / txt";
-const ACCEPT_RE = /\.(docx|pdf|md|markdown|txt)$/i;
+const ACCEPT_HINT_FALLBACK = "docx / pdf / md / txt";
+const ACCEPT_RE_FALLBACK = /\.(docx|pdf|md|markdown|txt)$/i;
+
+/** 动态格式解析结果：提示文案 + 校验正则（exts + images 合并） */
+interface AcceptFormats { hint: string; re: RegExp }
+
+/** V6.0 模块级单例 Promise：附件格式以后端 /knowledge/supported-formats 为唯一真源，
+ *  整个页面生命周期只拉一次；接口失败/超时回落上面的硬编码兜底值 */
+let acceptPromise: Promise<AcceptFormats> | null = null;
+function loadAcceptFormats(): Promise<AcceptFormats> {
+  if (!acceptPromise) {
+    acceptPromise = (async (): Promise<AcceptFormats> => {
+      try {
+        const r = await api(API + "/knowledge/supported-formats");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const d = (await r.json()) as { exts?: string[]; images?: string[]; hint?: string };
+        const exts = Array.isArray(d?.exts) ? d.exts.filter((s) => typeof s === "string" && s.trim()) : [];
+        const imgs = Array.isArray(d?.images) ? d.images.filter((s) => typeof s === "string" && s.trim()) : [];
+        const all = [...exts, ...imgs];
+        if (!all.length) throw new Error("empty formats");
+        // 扩展名转正则安全转义（如 c++ 等奇异扩展），合并生成 /\.（docx|pdf|png…）$/i
+        const esc = all.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+        return {
+          hint: typeof d?.hint === "string" && d.hint.trim() ? d.hint : all.join(" / "),
+          re: new RegExp(`\\.(${esc})$`, "i"),
+        };
+      } catch {
+        // 接口失败回落现值；不缓存失败结果，下次挂载可重试
+        acceptPromise = null;
+        return { hint: ACCEPT_HINT_FALLBACK, re: ACCEPT_RE_FALLBACK };
+      }
+    })();
+  }
+  return acceptPromise;
+}
 
 /** 空态示例 chips 的示例需求（点选直接填入输入框） */
 const SAMPLE_ECOM =
@@ -64,6 +93,9 @@ export default function ChatPanel({
 }) {
   const messages = useChatStore((s) => s.messages);
   const conversationId = useChatStore((s) => s.conversationId);
+  // V6.0 访客判定：role 由 AuthContext 响应式下发（登录/访客切换即时生效）
+  const { role } = useAuth();
+  const isGuest = role === "guest";
   // W3 M8 首页驾驶舱摘要：复用 taskStore 任务列表（App 层统一 5s 轮询），客户端聚合最近 2 条
   const tasks = useTaskStore((s) => s.tasks);
   /** 最近用例：任务按迭代链聚合（一行 = 一条用例集，展示最新版），取最近 2 条 */
@@ -87,8 +119,14 @@ export default function ChatPanel({
   const kbIds = useChatStore((s) => s.kbIds);
   const toggleKb = useChatStore((s) => s.toggleKb);
   const clearKbs = useChatStore((s) => s.clearKbs);
+  // V6.0 手动「存入记忆库」
+  const memoryBusy = useChatStore((s) => s.memoryBusy);
+  const digestMemory = useChatStore((s) => s.digestMemory);
+  const ensurePersonalKb = useChatStore((s) => s.ensurePersonalKb);
   const [kbOpen, setKbOpen] = useState(false);
-  const [kbList, setKbList] = useState<KbItem[]>([]);
+  const [kbList, setKbList] = useState<KbBaseItem[]>([]);
+  /** 附件格式（动态下发 + 兜底）：挂载后异步解析为后端真源 */
+  const [accept, setAccept] = useState<AcceptFormats>({ hint: ACCEPT_HINT_FALLBACK, re: ACCEPT_RE_FALLBACK });
   /** kb 弹层容器：点击外部 / Escape 关闭 */
   const kbPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -159,13 +197,42 @@ export default function ChatPanel({
   }, [inputFocusSeq]);
 
   // V5.8：知识库选择 popover 打开时拉取可见库列表（后端按权限过滤）
-  useEffect(() => {
-    if (!kbOpen) return;
+  const loadKbList = useCallback(() => {
     void api(API + "/knowledge/bases")
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((d) => setKbList(Array.isArray(d?.items) ? d.items : []))
       .catch(() => setKbList([]));
-  }, [kbOpen]);
+  }, []);
+  useEffect(() => {
+    if (!kbOpen) return;
+    loadKbList();
+  }, [kbOpen, loadKbList]);
+
+  // V6.0：挂载即幂等并入个人库（kbIds 自动包含个人记忆库 id，徽章计数同步）
+  useEffect(() => {
+    void ensurePersonalKb();
+  }, [ensurePersonalKb]);
+
+  // V6.0：记忆整理完成等场景触发的库列表刷新（chatStore dispatch "kb-refresh"）
+  useEffect(() => {
+    const onRefresh = () => {
+      void ensurePersonalKb();
+      loadKbList();
+    };
+    window.addEventListener("kb-refresh", onRefresh);
+    return () => window.removeEventListener("kb-refresh", onRefresh);
+  }, [ensurePersonalKb, loadKbList]);
+
+  // V6.0：附件格式动态化（模块级单例 Promise，只拉一次；失败回落兜底值）
+  useEffect(() => {
+    let alive = true;
+    void loadAcceptFormats().then((f) => {
+      if (alive) setAccept(f);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function onScroll(): void {
     const el = streamRef.current;
@@ -199,15 +266,20 @@ export default function ChatPanel({
     stickBottom.current = true;
   }
 
-  /** 选择附件：前端先按白名单拦一道，与后端 doc_extract 支持的格式保持一致 */
+  /** 选择附件：前端先按白名单拦一道（格式以后端 supported-formats 下发为准） */
   function onPickFile(f: File | null): void {
-    if (f && !ACCEPT_RE.test(f.name)) {
-      toast(`暂不支持该格式，请上传 ${ACCEPT_HINT}`);
+    if (f && !accept.re.test(f.name)) {
+      toast(`暂不支持该格式，请上传 ${accept.hint}`);
       if (fileRef.current) fileRef.current.value = "";
       setFile(null);
       return;
     }
     setFile(f);
+  }
+
+  /** V6.0 手动「存入记忆库」入口：按钮已做态控制，这里只透传当前会话 id */
+  function onDigestMemory(): void {
+    if (conversationId) void digestMemory(conversationId);
   }
 
   /** 切换「总是深度思考」：写本地记忆，下一次发送即生效 */
@@ -340,8 +412,8 @@ export default function ChatPanel({
                 type="button"
                 title={
                   kbIds.length
-                    ? `已选 ${kbIds.length} 个知识库参与检索（点击调整）`
-                    : "选择知识库参与检索（不选则不检索）"
+                    ? `已选 ${kbIds.length} 个知识库参与检索（含个人记忆库，点击调整）`
+                    : "选择知识库参与检索（个人库始终参与；附加库不选则不额外检索）"
                 }
                 aria-expanded={kbOpen}
                 onClick={() => setKbOpen((v) => !v)}
@@ -354,25 +426,35 @@ export default function ChatPanel({
                   <div className="kb-pop-head">
                     <span>检索知识库</span>
                     {kbIds.length > 0 && (
-                      <button type="button" className="kb-pop-clear" onClick={clearKbs}>清空</button>
+                      <button type="button" className="kb-pop-clear" title="清空附加库（个人记忆库保留）" onClick={clearKbs}>清空</button>
                     )}
                   </div>
-                  <p className="kb-pop-hint">勾选后 AI 回答将参考所选库内容；不选 = 不检索</p>
+                  <p className="kb-pop-hint">个人库始终参与检索；附加库不选则不额外检索</p>
                   <div className="kb-pop-list">
                     {kbList.length === 0 && (
                       <div className="kb-pop-empty">暂无可选知识库（可在「知识库」页创建）</div>
                     )}
                     {kbList.map((k) => {
-                      const on = kbIds.includes(k.id);
+                      const personal = !!k.is_personal;
+                      // 个人库强制勾选：kbIds 是否包含不影响 on 值（渲染恒亮）
+                      const on = personal || kbIds.includes(k.id);
                       return (
                         <button
                           key={k.id}
                           type="button"
                           className={`kb-pop-row ${on ? "on" : ""}`}
-                          onClick={() => toggleKb(k.id)}
+                          title={personal ? "个人记忆库：默认始终参与检索，不可取消" : undefined}
+                          aria-disabled={personal}
+                          style={personal ? { cursor: "default", opacity: 0.85 } : undefined}
+                          onClick={() => toggleKb(k.id)} // 个人库时 toggleKb 为 no-op（chatStore 拦截）
                         >
                           <span className={`kb-check ${on ? "on" : ""}`} aria-hidden="true">{on ? "✓" : ""}</span>
-                          <span className="kb-pop-name">{k.name}</span>
+                          <span className="kb-pop-name">
+                            {k.name}
+                            {personal && (
+                              <span aria-hidden="true" style={{ marginLeft: 4 }} title="个人记忆库">🧠</span>
+                            )}
+                          </span>
                           <span className="kb-pop-count">{k.doc_count ?? 0} 篇</span>
                         </button>
                       );
@@ -384,11 +466,30 @@ export default function ChatPanel({
             <button
               className="icon-btn"
               type="button"
-              title={`附加文档（${ACCEPT_HINT}），AI 会读取文档内容`}
+              title={`附加文档（${accept.hint}），AI 会读取文档内容`}
               disabled={streaming}
               onClick={() => fileRef.current?.click()}
             >
               <Paperclip size={20} />
+            </button>
+            {/* V6.0 手动「存入记忆库」：本会话对话记录+附件 → 个人知识库（后端异步整理，按钮全程置灰+转圈） */}
+            <button
+              className="icon-btn"
+              type="button"
+              aria-label="存入记忆库"
+              title={
+                isGuest
+                  ? "注册后即可使用记忆库"
+                  : "把本会话的对话记录与附件存入个人知识库"
+              }
+              disabled={streaming || !conversationId || isGuest || memoryBusy || messages.length === 0}
+              onClick={onDigestMemory}
+            >
+              <Brain
+                size={20}
+                // 复用 base.css 既有 @keyframes spin（不动白名单外样式文件）
+                style={memoryBusy ? { animation: "spin 1s linear infinite" } : undefined}
+              />
             </button>
             <button
               className={`think-toggle ${alwaysThink ? "active" : ""}`}

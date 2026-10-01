@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 import {
   Shield, ShieldCheck, Loader2, LogOut, Cpu,
   BookOpen, MessageSquare, UserPlus, ChevronsLeft, ChevronsRight,
-  Boxes, ChevronDown, ExternalLink, Library,
+  Boxes, ChevronDown, ExternalLink, Library, BarChart3,
 } from "lucide-react";
 import { useAuth } from "./hooks/useAuth";
 import { useChatStore } from "./store/chatStore";
@@ -37,11 +37,12 @@ import SettingsPage from "./pages/SettingsPage";
 import ModelConfigPage from "./pages/ModelConfigPage";
 import AdminPage from "./pages/AdminPage";
 import KnowledgePage from "./pages/KnowledgePage";
+import StatsPage from "./pages/StatsPage";
 
-type View = "main" | "cases" | "settings" | "models" | "admin" | "knowledge";
+type View = "main" | "cases" | "settings" | "models" | "admin" | "knowledge" | "stats";
 
 /** 合法视图 id */
-const VIEWS: View[] = ["main", "cases", "settings", "models", "admin", "knowledge"];
+const VIEWS: View[] = ["main", "cases", "settings", "models", "admin", "knowledge", "stats"];
 
 /** 未知/历史残留视图标识一律回落主视图 */
 function normalizeView(v: string | null): View {
@@ -113,6 +114,7 @@ export default function App() {
   // 非 admin 切到 admin 视图时踢回 main（登出/角色变化兜底）
   useEffect(() => {
     if (view === "admin" && ready && role !== "admin") setView("main");
+    if (view === "stats" && ready && role !== "admin") setView("main");
     if (view === "settings" && ready && !me) setView("main");
     // V4.2：guest 也可进知识库（只读共享库，写操作后端 403 + 前端隐藏按钮）
     if (view === "knowledge" && ready && !me) setView("main");
@@ -201,6 +203,8 @@ export default function App() {
         {railBtn("models", <Cpu />, "模型配置", canKb, { active: view === "models", onClick: () => setView("models"), aria: "模型配置 · 模型池与调度", ico: "i-models" })}
         {/* V5.3：管理后台改名「用户管理」（页面现已只含用户管理与访客治理）；仅管理员可见 */}
         {railBtn("admin", <Shield />, "用户管理", role === "admin", { active: view === "admin", onClick: () => setView("admin"), aria: "用户管理（仅管理员）", ico: "i-admin" })}
+        {/* V5.12 使用统计：今日/累计的业务量、LLM 调用与 HTTP 请求看板；仅管理员可见 */}
+        {railBtn("stats", <BarChart3 />, "使用统计", role === "admin", { active: view === "stats", onClick: () => setView("stats"), aria: "使用统计（仅管理员）", ico: "i-stats" })}
         {/* V4.5.3 被测系统：可折叠父项 + 子项外链（TARGETS 数组，后续追加即可） */}
         <div className={"rail-sub" + (tOpen ? " open" : "")}>
           <button
@@ -280,6 +284,7 @@ export default function App() {
         {view === "models" && <ModelConfigPage />}
         {view === "settings" && <SettingsPage />}
         {view === "admin" && <AdminPage />}
+        {view === "stats" && <StatsPage />}
       </div>
 
       <TaskDetailDrawer />

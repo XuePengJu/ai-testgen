@@ -140,6 +140,32 @@ curl -sk https://ai.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)'
 | 宝塔网站 | `agentest.vip` | 静态站，根目录 `/www/wwwroot/agentest.vip` |
 | acme.sh | 续期 webroot | `/www/wwwroot/acme`（ai./erp. 子域 LE 证书） |
 
+### 6.1 记忆与调度配置组（V6.0）
+
+> 对话记忆 + 个人知识库的运行参数，均读后端 `.env`（`AITF_*` 前缀），不配置走默认值；机制详见《docs/记忆与个人知识库机制说明.md》。
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `AITF_SCHEDULER` | `1` | 后台调度器总开关（夜间记忆提炼等定时任务入口） |
+| `AITF_MEMORY_ENABLED` | `1` | 对话记忆功能总开关（关闭时手动整理接口 403） |
+| `AITF_MEMORY_CRON_HOUR` | `2` | 每日记忆提炼触发：时 |
+| `AITF_MEMORY_CRON_MINUTE` | `0` | 每日记忆提炼触发：分 |
+| `AITF_MEMORY_TZ` | `Asia/Shanghai` | 调度时区 |
+| `AITF_MEMORY_MISFIRE_SEC` | `21600` | 错过触发的宽限秒数（默认 6h，重启补跑） |
+| `AITF_MEMORY_BACKFILL_DAYS` | `3` | 启动回填最近 N 天未提炼会话 |
+| `AITF_MEMORY_MAX_USERS_PER_RUN` | `50` | 单轮最多处理的用户数 |
+| `AITF_MEMORY_MAX_CONV_PER_RUN` | `20` | 单用户单轮最多处理的会话数 |
+| `AITF_MEMORY_SKIP_GUEST` | `1` | 记忆提炼跳过共享访客（访客不上记忆） |
+| `AITF_FILE_INGEST_GUEST` | `0` | 访客上传附件是否登记入库（默认仅对话缓存） |
+| `AITF_MEMORY_TOPK` | `3` | 个人记忆库检索固定槽 top-k |
+| `AITF_MEMORY_SYSTEM_BRIEF` | `1` | 注入个人记忆摘要到 system 提示 |
+| `AITF_MEMORY_DIGEST_DAILY` | `1` | 夜间提炼生成「记忆日报」 |
+| `AITF_MEMORY_DIGEST_MANUAL` | `1` | 允许 🧠 手动触发整理 |
+
+> ⚠️ **单 worker 约束**：uvicorn 必须 **`workers=1`（单进程）** 启动。夜间调度任务有 DB 抢占锁（`job_runs` 表，同任务同业务日期唯一）兜底，但多进程部署仍可能重复触发调度与后台任务；如确需多进程，必须先置 `AITF_SCHEDULER=0` 关闭调度器。
+>
+> ⚠️ **`.doc` 老格式支持**：解析依赖外部转换器，部署机需安装 **LibreOffice（`soffice`）**（Debian/Ubuntu：`apt install libreoffice-writer`）或 **antiword**；两者都缺时上传 `.doc` 会报「请将文件转为 .docx 后上传」的引导文案（其余格式不受影响）。
+
 ---
 
 ## 七、历史架构（已废弃）

@@ -1,14 +1,17 @@
-"""统一文档文本抽取：docx / pdf / md / txt / xlsx / xmind → 纯文本。
+"""统一文档文本抽取：docx / doc / pdf / md / txt / xlsx / csv / json / xmind / 图片 → 纯文本。
 
 背景：平台早期只认纯文本输入（`read_text(encoding="utf-8")`），上传 docx/pdf
 会直接抛 UnicodeDecodeError 把解析步骤打成 failed，而界面 tooltip 却写着支持
 这些格式。本模块作为**唯一入口**，保证「界面允许上传的格式，后端一定读得出文本」。
 
 - `.docx`  → python-docx，正文段落 + 表格行（按 ` | ` 拼接）
+- `.doc`   → soffice --headless 转 docx 后复用 docx 抽取；antiword 兜底（P1）
 - `.pdf`   → pdfplumber，逐页抽取，跳过空白页
-- `.md / .markdown / .txt` → utf-8 读取，非法字节用 errors="replace" 容错
+- `.md / .markdown / .txt / .csv / .json` → utf-8 读取，非法字节用 errors="replace" 容错
 - `.xlsx / .xls` → openpyxl（V4.0），遍历全部 sheet，行内单元格按 ` | ` 拼接
 - `.xmind` → 标准库 zipfile + json（V4.0），解析 content.json 主题树 → 标题层级
+- 图片组（.png/.jpg/.jpeg/.gif/.webp/.bmp）→ 返回空串：图片文字由 image_caption
+  在上传时用多模态模型生成描述并写入缓存，抽取层不负责（P1）
 - 其他扩展名 → 抛 UnsupportedFormatError（调用方转 400 或走原文件兜底）
 
 被 parser_agent（AI 解析）与 pipeline_lib（正则兜底）共用，两边行为一致。
@@ -16,13 +19,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from pathlib import Path
 
-# 界面允许上传、后端保证能解析的扩展名（前端 accept 与此保持一致）
+from app.services.image_caption import IMAGE_EXTS
+
+logger = logging.getLogger("doc_extract")
+
+# 界面允许上传、后端保证能解析的扩展名（前端 accept 与此保持一致；
+# /api/knowledge/supported-formats 是对外唯一真源，从这里派生）
 SUPPORTED_EXTS: tuple[str, ...] = (
     ".docx", ".pdf", ".md", ".markdown", ".txt", ".xlsx", ".xls", ".xmind",
-)
+    ".doc", ".csv", ".json",
+) + IMAGE_EXTS
 
 # 单次抽取字符上限：防御超大文档把模型上下文和内存打爆
 MAX_CHARS = 200_000
@@ -44,6 +54,57 @@ def is_supported(name: str) -> bool:
 def supported_hint() -> str:
     """给用户看的支持格式说明（与前端 accept 同源，避免两边写歪）。"""
     return " / ".join(e.lstrip(".") for e in SUPPORTED_EXTS)
+
+
+def _extract_doc(path: Path) -> str:
+    """Word 97-2003 (.doc)：soffice --headless 转 docx → 复用 docx 抽取；antiword 兜底。
+
+    两个转换器都不可用（或都失败）时抛 UnsupportedFormatError，
+    文案明确引导用户「转为 docx 后上传」——.doc 是老格式，不引额外重依赖。
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if soffice:
+        try:
+            with tempfile.TemporaryDirectory(prefix="doc_convert_") as td:
+                out_dir = Path(td)
+                # 60s 超时：headless 转换偶发挂死，不能拖住上传链路
+                proc = subprocess.run(
+                    [soffice, "--headless", "--convert-to", "docx",
+                     "--outdir", str(out_dir), str(path)],
+                    capture_output=True, timeout=60,
+                )
+                converted = out_dir / f"{path.stem}.docx"
+                if proc.returncode == 0 and converted.exists():
+                    return _extract_docx(converted)
+                logger.warning("soffice 转换 .doc 失败 rc=%s stderr=%s",
+                               proc.returncode, (proc.stderr or b"")[:200])
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning("soffice 转换 .doc 异常：%s", e)
+
+    antiword = shutil.which("antiword")
+    if antiword:
+        try:
+            proc = subprocess.run([antiword, str(path)],
+                                  capture_output=True, timeout=30)
+            if proc.returncode == 0:
+                return proc.stdout.decode("utf-8", errors="replace")
+            logger.warning("antiword 解析 .doc 失败 rc=%s", proc.returncode)
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning("antiword 解析 .doc 异常：%s", e)
+
+    raise UnsupportedFormatError(
+        ".doc 解析失败：服务器缺少 soffice/libreoffice 或 antiword 转换器，"
+        "请将文件转为 .docx 后上传"
+    )
+
+
+def _extract_json(path: Path) -> str:
+    """JSON：直接读文本（结构化数据当纯文本入库，交给分块/检索处理）。"""
+    return _extract_plain(path)
 
 
 def _extract_docx(path: Path) -> str:
@@ -179,14 +240,24 @@ def extract_text(path: str | Path) -> str:
     ext = p.suffix.lower()
     if ext == ".docx":
         text = _extract_docx(p)
+    elif ext == ".doc":
+        text = _extract_doc(p)
     elif ext == ".pdf":
         text = _extract_pdf(p)
     elif ext in (".md", ".markdown", ".txt"):
         text = _extract_plain(p)
+    elif ext == ".csv":
+        text = _extract_plain(p)
+    elif ext == ".json":
+        text = _extract_json(p)
     elif ext in (".xlsx", ".xls"):
         text = _extract_xlsx(p)
     elif ext == ".xmind":
         text = _extract_xmind(p)
+    elif ext in IMAGE_EXTS:
+        # 图片不在抽取层出文字：描述由 image_caption 在上传时用多模态模型
+        # 生成并写进 {file_id}.txt 缓存；这里返回空串（不当作解析失败）
+        text = ""
     else:
         raise UnsupportedFormatError(f"暂不支持的文件格式：{ext or '(无扩展名)'}")
     return text[:MAX_CHARS].strip()

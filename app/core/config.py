@@ -119,6 +119,24 @@ DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # 1h 回收，避�
 DB_ECHO = os.getenv("DB_ECHO", "false").lower() == "true"    # 调试时置 true 打印 SQL
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()     # 可选：直填完整 URL 优先于上面 DB_* 字段
 
+# ============ 记忆与调度（P0：对话记忆 + 个人知识库）============
+# 控制后台调度器开关、记忆提炼的定时与批量上限、访客是否参与记忆等
+AITF_SCHEDULER = os.getenv("AITF_SCHEDULER", "1") == "1"            # 后台调度器总开关（默认开）
+AITF_MEMORY_ENABLED = os.getenv("AITF_MEMORY_ENABLED", "1") == "1"  # 对话记忆功能总开关（默认开）
+AITF_MEMORY_CRON_HOUR = int(os.getenv("AITF_MEMORY_CRON_HOUR", "2"))          # 每日提炼触发：时
+AITF_MEMORY_CRON_MINUTE = int(os.getenv("AITF_MEMORY_CRON_MINUTE", "0"))      # 每日提炼触发：分
+AITF_MEMORY_TZ = os.getenv("AITF_MEMORY_TZ", "Asia/Shanghai")                 # 调度时区
+AITF_MEMORY_MISFIRE_SEC = int(os.getenv("AITF_MEMORY_MISFIRE_SEC", "21600"))  # 错过触发的宽限秒数（6h）
+AITF_MEMORY_BACKFILL_DAYS = int(os.getenv("AITF_MEMORY_BACKFILL_DAYS", "3"))  # 启动回填最近 N 天未提炼会话
+AITF_MEMORY_MAX_USERS_PER_RUN = int(os.getenv("AITF_MEMORY_MAX_USERS_PER_RUN", "50"))  # 单轮最多处理用户数
+AITF_MEMORY_MAX_CONV_PER_RUN = int(os.getenv("AITF_MEMORY_MAX_CONV_PER_RUN", "20"))    # 单用户单轮最多会话数
+AITF_MEMORY_SKIP_GUEST = os.getenv("AITF_MEMORY_SKIP_GUEST", "1") == "1"      # 记忆提炼跳过共享访客
+AITF_FILE_INGEST_GUEST = os.getenv("AITF_FILE_INGEST_GUEST", "0") == "1"      # 访客上传文件是否入库
+AITF_MEMORY_TOPK = int(os.getenv("AITF_MEMORY_TOPK", "3"))                    # 检索注入个人记忆 top-k
+AITF_MEMORY_SYSTEM_BRIEF = os.getenv("AITF_MEMORY_SYSTEM_BRIEF", "1") == "1"  # 注入个人记忆摘要到 system
+AITF_MEMORY_DIGEST_DAILY = os.getenv("AITF_MEMORY_DIGEST_DAILY", "1") == "1"  # 每日定时生成记忆摘要
+AITF_MEMORY_DIGEST_MANUAL = os.getenv("AITF_MEMORY_DIGEST_MANUAL", "1") == "1"  # 允许手动触发整理摘要
+
 
 def is_mock() -> bool:
     """无百炼 Key 时走 mock 兜底，保证开箱即跑。"""

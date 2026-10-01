@@ -25,5 +25,7 @@ class ChatIn(BaseModel):
     thinking: bool | None = None     # 「总是深度思考」开关：True=每轮都推理；None=按需自动（复杂问题才推理）
     roles: list[str] | None = None   # 参与角色（pm/qa/dev），决定 AI 回复身份；空则默认测试工程师
     kb_id: str | None = None         # V4.0 RAG：单库检索（V4.1 kb_qa 遗留；兼容保留）
-    kb_ids: list[str] = []           # V5.8 多选检索：勾选的知识库 id 列表；空 = 不检索（不再全库搜）
+    # V5.8 多选检索：勾选的业务知识库 id 列表；空 = 不检索业务库（不再全库搜）。
+    # P4：个人记忆库不入此列——检索时无条件强制并入（见 chat._build_rag_context）
+    kb_ids: list[str] = []
     mode: str | None = None          # V4.1 会话模式：workflow(默认)/kb_qa（kb_qa 前端已下线，兼容历史）

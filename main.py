@@ -28,7 +28,7 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
-from app.api import auth, categories, chat, conversations, files, guest, knowledge, llm_config, llm_pool, prompts, tasks, users
+from app.api import auth, categories, chat, conversations, files, guest, knowledge, llm_config, llm_pool, prompts, stats, tasks, users
 from app.core.config import STATIC_DIR, jwt_secret_is_placeholder, ENV
 from app.core.db import init_db, engine
 from app.core.logging_config import setup_logging
@@ -43,6 +43,18 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+
+    # P0：存量用户个人记忆库回填（幂等；失败只记日志，不阻断启动）
+    try:
+        from app.core.db import SessionLocal
+        from app.jobs.personal_kb import backfill_personal_kbs
+        _backfill_db = SessionLocal()
+        try:
+            backfill_personal_kbs(_backfill_db)
+        finally:
+            _backfill_db.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("个人记忆库回填失败（不影响启动）：%s", e)
 
     # JWT_SECRET 启动检测：默认占位值 → 演示 WARNING / 生产拒启
     if jwt_secret_is_placeholder():
@@ -64,10 +76,33 @@ async def lifespan(app: FastAPI):
     task_queue.recover_pending_tasks()
     task_queue.start_workers()
 
+    # V5.12 可观测性：请求统计周期落库线程（access_log 内存聚合 → request_stats 表）
+    from app.core import access_log
+    access_log.start_stats_flusher()
+
+    # P3：APScheduler 接入 —— 每晚 02:00 对话记忆提炼 + 启动回填缺失日期
+    # （失败只记日志不阻断启动；AITF_SCHEDULER=0 时全部为 no-op）
+    try:
+        from app.jobs.scheduler import init_scheduler, maybe_backfill_missing_days
+        init_scheduler()
+        maybe_backfill_missing_days()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("记忆调度器初始化失败（不影响启动）：%s", e)
+
     yield
 
     # 优雅关闭：等待队列中任务执行完毕（systemd TimeoutStopSec 兜底）
     task_queue.wait_for_drain()
+
+    # P3：关闭记忆提炼调度器（幂等；wait=False 不阻塞退出）
+    try:
+        from app.jobs.scheduler import shutdown_scheduler
+        shutdown_scheduler()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("记忆调度器关闭失败：%s", e)
+
+    # 关闭前把剩余统计聚合落库，防丢尾部数据
+    access_log.flush_stats_now()
 
 
 app = FastAPI(title="AI 测试工作流平台", version="0.2.0", lifespan=lifespan)
@@ -104,6 +139,7 @@ app.include_router(files.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(prompts.router, prefix="/api")
+app.include_router(stats.router, prefix="/api")
 
 
 @app.get("/health")

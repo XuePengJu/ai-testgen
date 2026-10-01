@@ -40,6 +40,8 @@
 | GET    | `/api/conversations/{id}`       | 会话详情（含全部消息，含思考过程）     |
 | PATCH  | `/api/conversations/{id}`       | 手动重命名会话（仅本人）     |
 | POST   | `/api/conversations/{id}/ai-title` | AI 总结会话内容生成标题并覆盖（走生效模型池） |
+| POST   | `/api/conversations/{id}/memory/digest` | 手动存入记忆库（🧠 按钮）：后台整理「本会话对话记录 + 本会话附件」写入个人知识库；立即返回 202 `{"status":"running"}`；409 = 正在整理中；403 = 访客或记忆开关（`AITF_MEMORY_ENABLED`）关闭 |
+| GET    | `/api/conversations/{id}/memory/state` | 记忆整理状态：`status`（idle/running/done/failed）+ `mem_at`（上次完成时间）/ `mem_doc_id`（会话记忆文档 id）/ `mem_error`（最近失败原因）/ `msg_count`（消息数）/ `attachments`（`{total, done}` 已入库附件数）；running 超 5 分钟自愈回落 idle |
 | POST   | `/api/conversations/{id}/messages` | 追加消息（前端断线恢复用）     |
 | DELETE | `/api/conversations/{id}`       | 删除会话（连带任务/消息级联清理）  |
 
@@ -47,20 +49,21 @@
 
 | 方法   | 路径                | 说明                          |
 | ---- | ----------------- | --------------------------- |
-| POST | `/api/chat/stream` | 流式对话（SSE）：支持注入任务摘要上下文（`task_id`）+ 深度思考 + 文档附件（`file_id`）+ 多库知识库检索（`kb_ids`）；命中知识库先发 `citations` 事件（引用溯源） |
+| POST | `/api/chat/stream` | 流式对话（SSE）：支持注入任务摘要上下文（`task_id`）+ 深度思考 + 文档附件（`file_id`）+ 多库知识库检索（`kb_ids`）。**`kb_ids` 语义（V6.0）**：个人记忆库由服务端隐式并入（不可取消）；**空数组 = 仅个人库参与检索**；无权限库静默剔除；命中知识库先发 `citations` 事件（引用溯源），引用项含 `personal` 标记区分「来自个人记忆」 |
 | POST | `/api/chat`        | 非流式对话（兜底，同渲染管线）              |
 
 ## 文件
 
 | 方法   | 路径           | 说明                                  |
 | ---- | ------------ | ----------------------------------- |
-| POST | `/api/files` | 上传对话附件（docx/pdf/md/markdown/txt/xlsx/xls），返回 file_id 供对话引用 |
+| POST | `/api/files` | 上传对话附件，返回 `file_id` 供对话引用。参数：`file`（multipart）+ `conversation_id`（Form，可空，会话关联，为空=孤儿附件）+ 认证头。支持格式见 `GET /api/knowledge/supported-formats`（docx/doc/pdf/md/markdown/txt/csv/json/xlsx/xls/xmind + 图片组）。**登录用户**：附件同步登记进个人记忆库（sha256 幂等）并返回 `knowledge_id`（可空，入库失败降级为纯对话缓存时为 null）；**访客**（且 `AITF_FILE_INGEST_GUEST=0`）：仅做 24h 对话缓存，`knowledge_id` 恒为 null |
 
 ## 知识库
 
 | 方法     | 路径                                       | 说明                              |
 | ------ | ---------------------------------------- | ------------------------------- |
-| GET    | `/api/knowledge/bases`                   | 知识库列表（按可见性过滤，含文档/分块统计）          |
+| GET    | `/api/knowledge/bases`                   | 知识库列表（按可见性过滤，个人记忆库置底展示；返回项含 `is_personal` 个人库标记） |
+| GET    | `/api/knowledge/supported-formats`       | 上传格式白名单唯一真源：`{"exts": [文档/数据格式], "images": [图片格式], "hint": "提示文案"}` |
 | POST   | `/api/knowledge/bases`                   | 新建库（`name` / `visibility` 私有或共享）    |
 | PATCH  | `/api/knowledge/bases/{id}`              | 改名 / 改可见性                      |
 | DELETE | `/api/knowledge/bases/{id}`             | 删库（级联文档）                        |

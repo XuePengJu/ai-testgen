@@ -119,6 +119,7 @@ class PoolClient:
         self.candidates = list(candidates)
         self.slot = slot
         self.persist = persist
+        self.usage_user_id = 0           # V5.12 埋点上下文：发起调用的用户（build_client 注入）
         self._skip: set[int] = set()      # 本实例内已判失败的候选（避免同任务内反复撞）
         self.switch_log: list[dict] = []  # 切换留痕：[{from, to, reason}]
         for i, c in enumerate(self.candidates):
@@ -127,7 +128,13 @@ class PoolClient:
     # ---------- 内部工具 ----------
 
     def _client(self, cand: dict):
-        return _Client(cand["base_url"], cand["api_key"], cand["model"])
+        c = _Client(cand["base_url"], cand["api_key"], cand["model"])
+        # V5.12：把调用方上下文传给底层客户端，llm_usage 埋点据此归因到用户/槽位
+        try:
+            c.usage_meta = {"user_id": self.usage_user_id, "slot": self.slot}
+        except Exception:  # noqa: BLE001  测试替身可能不接受属性
+            pass
+        return c
 
     def _ordered(self) -> list[dict]:
         now = utcnow()
@@ -288,7 +295,9 @@ def build_client(db, user, slot: str = "text"):
     """构建该槽位可用的客户端：池优先，池空回落单条，都不可用返回 None。"""
     pool = resolve_pool(db, user, slot)
     if pool:
-        return PoolClient(pool, slot=slot)
+        pc = PoolClient(pool, slot=slot)
+        pc.usage_user_id = user.id if user is not None else 0  # V5.12 埋点归因
+        return pc
 
     from app.services import llm_service
     if slot == "embedding":
@@ -301,7 +310,10 @@ def build_client(db, user, slot: str = "text"):
     if not cfg or not cfg.get("api_key"):
         return None
     try:
-        return _single_client_cls()(cfg["base_url"], cfg["api_key"], cfg["model"])
+        c = _single_client_cls()(cfg["base_url"], cfg["api_key"], cfg["model"])
+        c.usage_meta = {"user_id": user.id if user is not None else 0,
+                        "slot": slot}  # V5.12 埋点归因
+        return c
     except LLMError:
         return None
 

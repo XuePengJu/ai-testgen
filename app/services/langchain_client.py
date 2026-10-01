@@ -13,12 +13,45 @@
 """
 import json
 import re
+import time
 
 import httpx
 from langchain.chat_models import init_chat_model
 from openai import APIStatusError, APIConnectionError, APITimeoutError
 
 _TIMEOUT = 180  # 生成用例常规超时（免费模型慢，放宽到 3 分钟）
+
+
+def _emit_usage(client, ok: bool, t0: float, prompt_chars: int = 0,
+                completion_chars: int = 0, error: str = "", action: str = "chat") -> None:
+    """用量埋点出口（V5.12）：读取 client.usage_meta（user_id/slot），落一行 llm_usage。
+
+    任何异常静默吞掉——统计绝不干扰主调用。mock 替身没有本函数，天然不计数。
+    """
+    try:
+        from app.services.llm_usage import record_usage
+        meta = getattr(client, "usage_meta", None) or {}
+        record_usage(
+            model=getattr(client, "model", ""),
+            user_id=meta.get("user_id", 0) or 0,
+            slot=meta.get("slot", "text") or "text",
+            action=action,
+            ok=ok,
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            prompt_chars=prompt_chars,
+            completion_chars=completion_chars,
+            error=error,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _prompt_chars(messages: list) -> int:
+    """prompt 体量粗估（字符数）：content 可能是 str 或分段列表，统一转 str 计长。"""
+    try:
+        return sum(len(str(m.get("content") or "")) for m in messages if isinstance(m, dict))
+    except Exception:  # noqa: BLE001
+        return 0
 
 # 端点不认 enable_thinking 的记忆集合（base_url|model）
 _NO_THINKING_PARAM: set[str] = set()
@@ -102,6 +135,8 @@ class LangChainClient:
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
+        # V5.12 用量埋点上下文：由 llm_pool.build_client / PoolClient 注入
+        self.usage_meta: dict | None = None
 
     def _build_model(self, temperature: float, max_tokens: int, timeout: float,
                      enable_thinking: bool | None = None):
@@ -135,19 +170,27 @@ class LangChainClient:
         结构化抽取类调用点应传 False —— 实测思考会让正文退化成"摘要式少量结果"
         且耗时翻数倍（见 docs/项目1-模型池与思考控制执行方案-V1.0.md §1）。
         """
+        t0 = time.perf_counter()
+        full, err = "", ""
         try:
-            full = ""
             for chunk in self._build_model(temperature, max_tokens, timeout,
                                            enable_thinking).stream(messages):
                 full += _norm_content(chunk.content)
-        except LLMError:
-            raise
+        except LLMError as e:
+            err = str(e)
         except APIStatusError as e:
-            raise LLMError(f"HTTP {e.status_code}：{_err_detail(e)}") from e
+            err = f"HTTP {e.status_code}：{_err_detail(e)}"
         except (APIConnectionError, APITimeoutError) as e:
-            raise LLMError(f"网络错误：{e.__class__.__name__}") from e
+            err = f"网络错误：{e.__class__.__name__}"
         except Exception as e:  # noqa: BLE001
-            raise LLMError(f"{e.__class__.__name__}: {str(e)[:200]}") from e
+            err = f"{e.__class__.__name__}: {str(e)[:200]}"
+        if err:
+            # V5.12：失败也计一次（错误分类语义与原实现一致，统一转 LLMError）
+            _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
+                        error=err, action="chat")
+            raise LLMError(err)
+        _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
+                    completion_chars=len(full), action="chat")
         return _THINK_TAG_RE.sub("", full).strip()
 
     def generate(self, prompt: str, enable_thinking: bool | None = None) -> str:
@@ -167,38 +210,55 @@ class LangChainClient:
         ep_key = f"{self.base_url}|{self.model}"
         injected = enable_thinking is not None and ep_key not in _NO_THINKING_PARAM
         retried = False
-        while True:
-            llm = self._build_model(temperature, max_tokens, timeout,
-                                    None if retried else enable_thinking)
-            full, think_full = "", ""
-            try:
-                for chunk in llm.stream(messages):
-                    reason = _extract_thinking(chunk)
-                    if reason:
-                        think_full += reason
-                        yield ("think", reason)
-                    delta = _norm_content(chunk.content)
-                    if delta:
-                        full += delta
-                        yield ("delta", delta)
-            except APIStatusError as e:
-                if not retried and injected and e.status_code == 400:
-                    # 端点不认 enable_thinking → 去掉参数重试一次，并记住该端点
-                    _NO_THINKING_PARAM.add(ep_key)
-                    retried = True
-                    continue
-                yield ("error", f"HTTP {e.status_code}：{_err_detail(e)}")
-                return
-            except (APIConnectionError, APITimeoutError) as e:
-                yield ("error", f"网络错误：{e.__class__.__name__}")
-                return
-            except Exception as e:  # noqa: BLE001
-                yield ("error", f"流式中断：{e.__class__.__name__}: {str(e)[:80]}")
-                return
-            break
-        # 防御：正文里混入的 <think>/<thinking> 思考块清掉，保完整存档干净
-        clean = _THINK_TAG_RE.sub("", full).strip()
-        yield ("done", {"full": full, "clean": clean, "thinking": think_full})
+        t0 = time.perf_counter()
+        _pchars = _prompt_chars(messages)
+        recorded = False
+        err = ""
+        try:
+            while True:
+                llm = self._build_model(temperature, max_tokens, timeout,
+                                        None if retried else enable_thinking)
+                full, think_full = "", ""
+                try:
+                    for chunk in llm.stream(messages):
+                        reason = _extract_thinking(chunk)
+                        if reason:
+                            think_full += reason
+                            yield ("think", reason)
+                        delta = _norm_content(chunk.content)
+                        if delta:
+                            full += delta
+                            yield ("delta", delta)
+                except APIStatusError as e:
+                    if not retried and injected and e.status_code == 400:
+                        # 端点不认 enable_thinking → 去掉参数重试一次，并记住该端点
+                        _NO_THINKING_PARAM.add(ep_key)
+                        retried = True
+                        continue
+                    err = f"HTTP {e.status_code}：{_err_detail(e)}"
+                    yield ("error", err)
+                    return
+                except (APIConnectionError, APITimeoutError) as e:
+                    err = f"网络错误：{e.__class__.__name__}"
+                    yield ("error", err)
+                    return
+                except Exception as e:  # noqa: BLE001
+                    err = f"流式中断：{e.__class__.__name__}: {str(e)[:80]}"
+                    yield ("error", err)
+                    return
+                break
+            # V5.12：正常完成计一次成功
+            _emit_usage(self, True, t0, prompt_chars=_pchars,
+                        completion_chars=len(full), action="stream")
+            recorded = True
+            # 防御：正文里混入的 <think>/<thinking> 思考块清掉，保完整存档干净
+            clean = _THINK_TAG_RE.sub("", full).strip()
+            yield ("done", {"full": full, "clean": clean, "thinking": think_full})
+        finally:
+            # error 路径 / 调用方中途丢弃生成器（GeneratorExit）→ 计一次失败，防漏防重
+            if not recorded:
+                _emit_usage(self, False, t0, prompt_chars=_pchars,
+                            error=err or "aborted", action="stream")
 
     def describe_image(self, image_url: str, hint: str = "") -> str:
         """视觉理解：图片 + 指令 → 中文文字描述（两段式第一步）。"""
@@ -257,6 +317,8 @@ class _HttpxCompatClient:
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
+        # V5.12 用量埋点上下文：由 llm_pool.build_client / PoolClient 注入
+        self.usage_meta: dict | None = None
 
     def chat(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
              timeout: float = _TIMEOUT, enable_thinking: bool | None = None) -> str:
@@ -267,11 +329,19 @@ class _HttpxCompatClient:
         ep_key = f"{self.base_url}|{self.model}"
         if enable_thinking is not None and ep_key not in _NO_THINKING_PARAM:
             payload["enable_thinking"] = bool(enable_thinking)
-        data = _post_chat(self.base_url, self.api_key, payload, timeout=timeout)
+        t0 = time.perf_counter()
+        err = ""
         try:
+            data = _post_chat(self.base_url, self.api_key, payload, timeout=timeout)
             content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as e:
-            raise LLMError("响应缺少 choices[0].message.content") from e
+        except LLMError as e:
+            err = str(e)
+        except (KeyError, IndexError, TypeError):
+            err = "响应缺少 choices[0].message.content"
+        if err:
+            _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
+                        error=err, action="chat")
+            raise LLMError(err)
         if not isinstance(content, str):
             # 兼容部分厂商返回 content 为分段列表的形态
             if isinstance(content, list):
@@ -280,6 +350,8 @@ class _HttpxCompatClient:
                 )
             else:
                 content = str(content)
+        _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
+                    completion_chars=len(content), action="chat")
         # 防御：部分厂商会把思考过程以 <think>/<thinking> 混入 content
         content = _THINK_TAG_RE.sub("", content).strip()
         return content
@@ -301,55 +373,70 @@ class _HttpxCompatClient:
         if enable_thinking is not None and ep_key not in _NO_THINKING_PARAM:
             payload["enable_thinking"] = bool(enable_thinking)
 
-        full = ""
-        think_full = ""
-        for attempt in (0, 1):
-            full, think_full = "", ""
-            try:
-                with httpx.Client(timeout=timeout) as hc:
-                    with hc.stream("POST", url, headers=headers, json=payload) as r:
-                        if r.status_code != 200:
-                            body = r.read().decode("utf-8", errors="ignore")[:300]
-                            # 端点不认 enable_thinking（400）→ 去掉参数重试一次，并记住该端点
-                            if attempt == 0 and r.status_code == 400 and "enable_thinking" in payload:
-                                _NO_THINKING_PARAM.add(ep_key)
-                                payload.pop("enable_thinking", None)
-                                continue
-                            yield ("error", f"HTTP {r.status_code}：{body}")
-                            return
-                        for line in r.iter_lines():
-                            if not line or not line.startswith("data:"):
-                                continue
-                            data = line[5:].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                obj = json.loads(data)
-                                d = obj["choices"][0].get("delta") or {}
-                            except (KeyError, IndexError, ValueError):
-                                continue
-                            reason = ""
-                            for f in _THINK_FIELDS:
-                                v = d.get(f)
-                                if isinstance(v, str) and v:
-                                    reason = v
+        t0 = time.perf_counter()
+        _pchars = _prompt_chars(messages)
+        recorded = False
+        err = ""
+        try:
+            full = ""
+            think_full = ""
+            for attempt in (0, 1):
+                full, think_full = "", ""
+                try:
+                    with httpx.Client(timeout=timeout) as hc:
+                        with hc.stream("POST", url, headers=headers, json=payload) as r:
+                            if r.status_code != 200:
+                                body = r.read().decode("utf-8", errors="ignore")[:300]
+                                # 端点不认 enable_thinking（400）→ 去掉参数重试一次，并记住该端点
+                                if attempt == 0 and r.status_code == 400 and "enable_thinking" in payload:
+                                    _NO_THINKING_PARAM.add(ep_key)
+                                    payload.pop("enable_thinking", None)
+                                    continue
+                                err = f"HTTP {r.status_code}：{body}"
+                                yield ("error", err)
+                                return
+                            for line in r.iter_lines():
+                                if not line or not line.startswith("data:"):
+                                    continue
+                                data = line[5:].strip()
+                                if data == "[DONE]":
                                     break
-                            if reason:
-                                think_full += reason
-                                yield ("think", reason)
-                            delta = d.get("content") or ""
-                            if delta:
-                                full += delta
-                                yield ("delta", delta)
-            except httpx.HTTPError as e:
-                yield ("error", f"网络错误：{e.__class__.__name__}")
-                return
-            except Exception as e:  # noqa: BLE001
-                yield ("error", f"流式中断：{e.__class__.__name__}: {str(e)[:80]}")
-                return
-            break   # 正常跑完 → 不重试
-        clean = _THINK_TAG_RE.sub("", full).strip()
-        yield ("done", {"full": full, "clean": clean, "thinking": think_full})
+                                try:
+                                    obj = json.loads(data)
+                                    d = obj["choices"][0].get("delta") or {}
+                                except (KeyError, IndexError, ValueError):
+                                    continue
+                                reason = ""
+                                for f in _THINK_FIELDS:
+                                    v = d.get(f)
+                                    if isinstance(v, str) and v:
+                                        reason = v
+                                        break
+                                if reason:
+                                    think_full += reason
+                                    yield ("think", reason)
+                                delta = d.get("content") or ""
+                                if delta:
+                                    full += delta
+                                    yield ("delta", delta)
+                except httpx.HTTPError as e:
+                    err = f"网络错误：{e.__class__.__name__}"
+                    yield ("error", err)
+                    return
+                except Exception as e:  # noqa: BLE001
+                    err = f"流式中断：{e.__class__.__name__}: {str(e)[:80]}"
+                    yield ("error", err)
+                    return
+                break   # 正常跑完 → 不重试
+            _emit_usage(self, True, t0, prompt_chars=_pchars,
+                        completion_chars=len(full), action="stream")
+            recorded = True
+            clean = _THINK_TAG_RE.sub("", full).strip()
+            yield ("done", {"full": full, "clean": clean, "thinking": think_full})
+        finally:
+            if not recorded:
+                _emit_usage(self, False, t0, prompt_chars=_pchars,
+                            error=err or "aborted", action="stream")
 
     def describe_image(self, image_url: str, hint: str = "") -> str:
         messages = [{

@@ -79,7 +79,17 @@ def test_supported_exts():
     assert is_supported("plain.txt")
     assert is_supported("报表.xlsx")        # V4.0 支持 Excel（openpyxl）
     assert is_supported("库存表.xls")
-    assert not is_supported("data.csv")
+    # P1 扩容：.doc（soffice/antiword 转换）、.csv/.json（纯文本读取）、图片组（描述生成）
+    assert is_supported("老文档.doc")
+    assert is_supported("数据.csv")
+    assert is_supported("配置.json")
+    assert is_supported("截图.png")
+    assert is_supported("截图.JPG")
+    assert is_supported("图.jpeg")
+    assert is_supported("动图.gif")
+    assert is_supported("图.webp")
+    assert is_supported("位图.bmp")
+    assert not is_supported("病毒.bin")      # 真正不支持的格式（P1 前 csv 占位已放开）
     assert not is_supported("无扩展名")
 
 
@@ -127,10 +137,31 @@ def test_extract_pdf(tmp_path):
 
 
 def test_extract_unsupported_raises(tmp_path):
-    p = tmp_path / "数据.csv"
+    p = tmp_path / "损坏.bin"
     p.write_bytes(b"PK\x03\x04")
     with pytest.raises(UnsupportedFormatError):
         extract_text(p)
+
+
+def test_extract_csv_and_json_as_plain_text(tmp_path):
+    """P1：csv / json 按纯文本读取入库。"""
+    p = tmp_path / "数据.csv"
+    p.write_text("模块,规则\n登录,密码错误锁定", encoding="utf-8")
+    assert "密码错误锁定" in extract_text(p)
+    j = tmp_path / "配置.json"
+    j.write_text('{"env": "test", "timeout": 30}', encoding="utf-8")
+    assert '"timeout": 30' in extract_text(j)
+
+
+def test_extract_image_returns_empty(tmp_path):
+    """图片在抽取层返回空文本：文字由 image_caption 上传时生成（不当作解析失败）。"""
+    from PIL import Image
+    from app.services.image_caption import IMAGE_EXTS
+
+    for ext in IMAGE_EXTS:
+        p = tmp_path / f"图{ext}"
+        Image.new("RGB", (8, 8), "white").save(p, format="PNG")
+        assert extract_text(p) == ""
 
 
 def test_extract_broken_docx_raises_extract_error(tmp_path):
@@ -215,7 +246,7 @@ def test_upload_rejects_unsupported(client, accounts):
     tok = accounts["user"]["token"]
     r = client.post(
         "/api/files",
-        files={"file": ("数据.csv", b"a,b\n1,2", "text/csv")},
+        files={"file": ("垃圾.bin", b"\x00\x01\x02", "application/octet-stream")},
         headers={"Authorization": "Bearer " + tok},
     )
     assert r.status_code == 400
@@ -248,7 +279,7 @@ def test_create_task_rejects_unsupported_file(client, accounts):
     tok = accounts["user"]["token"]
     r = client.post(
         "/api/tasks",
-        files={"file": ("数据.csv", b"a,b\n1,2", "text/csv")},
+        files={"file": ("垃圾.bin", b"\x00\x01\x02", "application/octet-stream")},
         data={"text": "", "kind": "business"},
         headers={"Authorization": "Bearer " + tok},
     )

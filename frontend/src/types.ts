@@ -70,6 +70,27 @@ export interface CitationItem {
   context_header: string;
   snippet: string;
   score: number | null;
+  /** V6.0 命中来源为个人记忆库时回传，前端渲染「🧠 记忆」小标签 */
+  personal?: boolean;
+}
+
+/** V6.0 知识库条目精简类型（/api/knowledge/bases items，个人记忆库标记 is_personal） */
+export interface KbBaseItem {
+  id: string;
+  name: string;
+  doc_count?: number;
+  /** true = 用户个人记忆库（对话记忆沉淀，前端默认勾选且不可取消） */
+  is_personal?: boolean;
+}
+
+/** V6.0 会话记忆整理状态（GET /api/conversations/{id}/memory/state） */
+export interface MemoryState {
+  status: "idle" | "running" | "done" | "failed";
+  mem_at?: string | null;
+  doc_id?: string | null;
+  error?: string | null;
+  msg_count?: number;
+  attachments?: { total: number; done: number };
 }
 
 /** 与 app/schemas/task.py:StepLogOut 对齐 */

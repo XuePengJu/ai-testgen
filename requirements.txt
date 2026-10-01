@@ -25,6 +25,9 @@ langsmith==0.12.5
 chromadb==1.5.9
 rank_bm25>=0.2.2
 
+# ===== P1 图片附件入库（image_caption 压缩/转码）=====
+pillow>=10
+
 # ===== M0 平台自身质量量化 =====
 pytest>=8.0
 pytest-asyncio>=1.4

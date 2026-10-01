@@ -88,6 +88,13 @@ def delete_user(user_id: int, admin: User = Depends(require_admin),
     if task_ids:
         db.execute(delete(StepLog).where(StepLog.task_id.in_(task_ids)))
         db.execute(delete(Task).where(Task.user_id == u.id))
+    # P0：级联清该用户知识库行数据与 Chroma 向量（不清会留孤儿；失败只记日志不阻断删用户）
+    try:
+        from app.services.memory.store import purge_user_knowledge
+        purge_user_knowledge(db, u.id)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("api.users").warning(
+            "purge knowledge for user %s failed: %s", u.id, e)
     if u.data_dir:
         for base in (UPLOAD_DIR, OUTPUT_DIR):
             shutil.rmtree(base / u.data_dir, ignore_errors=True)

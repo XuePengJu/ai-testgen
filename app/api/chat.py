@@ -15,8 +15,10 @@ SSE 协议：
   data: {"message": "..."}         非终态提示（降级/中断），流会继续
 
   event: citations
-  data: {"items": [...], "kb_id": "...", "top_k": n}   V4.1 引用溯源：正文前发送，
+  data: {"items": [...], "kb_ids": "...", "top_k": n}   V4.1 引用溯源：正文前发送，
                                                        items 为命中的知识库分块元数据
+                                                       （P4 起每项含 personal 布尔：
+                                                       True=该分块来自个人记忆库）
 
   event: done
   data: {"full": "...", "source": "user|platform|env|mock", "thinking": "..."}
@@ -26,6 +28,16 @@ SSE 协议：
 
 思考有两个来源：① 上游独立字段 → 走 think 事件；② 老模型混在正文里的
 <think>/<thinking> 标签 或 mock 的 思考...思考 → 前端自行切分。
+
+P2+P4 检索语义（对话记忆 + 个人知识库改造）：
+- 个人记忆库强制检索：kb_ids 只表达「业务库」的勾选范围；个人库不入勾选列表，
+  _build_rag_context 无条件并入（get_personal_kb_id 只读查询，绝不建库），
+  无任何可见库时才整体早退
+- 两路检索按 chunk_id 去重合并，记忆片段排最前（记忆优先），总长仍限 4000 字
+- 记忆摘要回注：AITF_MEMORY_SYSTEM_BRIEF=1 时把最新记忆日报正文前 800 字作为
+  【记忆摘要】拼进上下文（排在任务摘要之后、RAG 检索之前），guest 恒不拼
+- 会话结束后 _persist_chat 给非 guest 会话打 mem_dirty 标记（只做内存赋值，
+  绝不在此处调 LLM；夜间/手动提炼由 app/jobs/chat_memory.py 负责）
 
 流式响应 Content-Type 是 text/event-stream，不会被 ApiCryptoMiddleware 加密
 （中间件只加密 application/json）。
@@ -43,10 +55,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.files import load_chat_file
+from app.core import config
 from app.core.db import get_db
 from app.core.utils import utcnow
 from app.models.conversation import Conversation, Message
-from app.models.knowledge import Knowledge
+from app.models.knowledge import Chunk, Knowledge
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.llm_config import ChatIn
@@ -127,6 +140,10 @@ def _persist_chat(db: Session, user: User | None, body: ChatIn, full_text: str,
     否则历史消息的思考面板会空。
 
     V4.5.2：citations 一并持久化（JSON 文本），切换会话/刷新后引用不丢。
+
+    P2 记忆打标：非 guest 用户对话结束后置 mem_dirty=True 并推进水位
+    mem_last_msg_id=assistant 消息 id——只做内存赋值后随本次 commit 落库，
+    绝不在此处调 LLM（夜间/手动提炼由 app/jobs/chat_memory.py 负责）。
     """
     if not user or not body.conversation_id:
         return
@@ -137,9 +154,20 @@ def _persist_chat(db: Session, user: User | None, body: ChatIn, full_text: str,
     if think_text:
         thinking = f"{think_text.strip()}\n\n{thinking}".strip() if thinking else think_text.strip()
     cites_json = json.dumps(citations, ensure_ascii=False) if citations else None
-    db.add(Message(conversation_id=conv.id, role="user", content=body.message))
-    db.add(Message(conversation_id=conv.id, role="assistant",
-                   content=reply, thinking=thinking, citations=cites_json))
+    u_msg = Message(conversation_id=conv.id, role="user", content=body.message)
+    a_msg = Message(conversation_id=conv.id, role="assistant",
+                    content=reply, thinking=thinking, citations=cites_json)
+    db.add(u_msg)
+    db.add(a_msg)
+    # 拿 assistant 自增 id 供水位用；测试替身（_FakeDB 等）未实现 flush 时跳过，
+    # 真实 Session 恒有 flush，生产行为不变
+    if hasattr(db, "flush"):
+        db.flush()
+    # P2 打标：guest 共享账号不进记忆（AITF_MEMORY_SKIP_GUEST=0 时也纳入，方便演示）；
+    # 其余用户标记待提炼增量。role 用 getattr 兜底，兼容无 role 属性的测试替身
+    if getattr(user, "role", "user") != "guest" or not config.AITF_MEMORY_SKIP_GUEST:
+        conv.mem_dirty = True
+        conv.mem_last_msg_id = a_msg.id
     conv.updated_at = utcnow()
     db.commit()
 
@@ -185,37 +213,56 @@ def _build_attachment_context(loaded: tuple[str, str] | None) -> str:
 
 
 def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[str, list[dict]]:
-    """V4.0 RAG：按用户可见知识库检索问题相关分块，拼成参考上下文。
+    """P4 RAG：按（个人记忆库 ∪ 用户勾选业务库）∩ 可见 联合检索，拼参考上下文。
 
     V4.1 变更：额外返回引用溯源元数据列表（citations），供 SSE citations
     事件回传前端；返回值从 str 改为 (context, citations) 元组——调用点仅
     _run 一处，无其他波及。
 
-    限长 4000 字符（attached_text 总上限 6000，给任务摘要/附件留空间）；
-    mock 向量时检索质量差，真实 Embedding Key 配置后自然增强。
+    P4 检索语义：
+    - kb_ids 只表达业务库勾选；个人记忆库不入勾选列表，此处强制并入检索范围
+      （get_personal_kb_id 只读查询，绝不建库），无权限/无配置的库静默剔除
+    - 个人库与业务库两次检索后按 chunk_id 去重（记忆优先），citations 每项
+      增加 personal 布尔标记（chunk 来自个人库文档 = True），前端可高亮
+      「来自记忆」的引用
+    - mock 向量时检索质量差，真实 Embedding Key 配置后自然增强
     """
     if not user:
         return "", []
     from app.services import llm_service
     from app.services.knowledge import vectorstore
     from app.services.knowledge.ingest import visible_kb_ids
+    from app.services.memory.store import get_personal_kb_id
 
     # 注入 embedding 配置（当前用户个人配置 > 平台 > env > mock；与入库同模型才可匹配）
     vectorstore.configure_embedding(llm_service.resolve_embedding(db, user.id).get("cfg"))
 
+    # P4：个人库只读查询（绝不建库）；可见业务库集合
+    personal_kb_id = get_personal_kb_id(db, user.id)
     vids = visible_kb_ids(db, user.id, admin=user.role == "admin")
-    if not vids:
+    # 早退：既无个人库也无任何可见业务库
+    if not vids and not personal_kb_id:
         return "", []
-    # V5.8 检索语义：不选知识库 = 不检索（旧行为"全库搜"已废除，避免无关库噪音挤占 top_k）；
-    # kb_ids 多选 = 所选库联合检索；kb_id 单库字段为 kb_qa 遗留，兼容读取。
-    # 选中但无权限的库静默剔除（不报错，检索范围仅限有权可见的库）。
-    picked = [k for k in (body.kb_ids or ([] if not body.kb_id else [body.kb_id])) if k in vids]
-    if not picked:
-        return "", []
-    hits = vectorstore.search(
-        body.message, picked,
-        top_k=6 if not body.file_id else 4,  # 有附件时少检索几块，给附件正文留空间
-    )
+    # V5.8 检索语义：不选知识库 = 不检索业务库（旧行为"全库搜"已废除，避免无关库噪音
+    # 挤占 top_k）；kb_ids 多选 = 所选业务库联合检索；kb_id 单库字段为 kb_qa 遗留，
+    # 兼容读取。选中但无权限的库静默剔除（不报错，检索范围仅限有权可见的库）。
+    # P4：picked 只含业务库；个人库无条件并入（强制检索），见 picked_biz/picked_mem。
+    picked_biz = [k for k in (body.kb_ids or ([] if not body.kb_id else [body.kb_id]))
+                  if k in vids]
+    top_k = 6 if not body.file_id else 4  # 有附件时少检索几块，给附件正文留空间
+    biz_hits = vectorstore.search(body.message, picked_biz, top_k=top_k) if picked_biz else []
+    mem_hits = (vectorstore.search(body.message, [personal_kb_id],
+                                   top_k=config.AITF_MEMORY_TOPK)
+                if personal_kb_id else [])
+    # 两路汇总去重：记忆片段优先（排前且占用 chunk_id 去重名额）
+    seen: set[str] = set()
+    hits: list[dict] = []
+    for h in mem_hits + biz_hits:
+        cid = h.get("id") or ""
+        if cid in seen:
+            continue
+        seen.add(cid)
+        hits.append(h)
     if not hits:
         return "", []
     parts, cites = [], []
@@ -232,6 +279,8 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             "context_header": header,
             "snippet": (h.get("document") or "")[:120],
             "score": h.get("score"),
+            # P4：该分块是否来自个人记忆库（kb_id 与个人库 id 相等即个人记忆）
+            "personal": bool(personal_kb_id) and meta.get("kb_id") == personal_kb_id,
         })
     # 批量补 Wiki/文档条目标题（引用跳转定位用），一次查询避免 N+1
     kids = {c["knowledge_id"] for c in cites if c["knowledge_id"]}
@@ -246,6 +295,37 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
                 c["doc_title"] = t
     out = "【知识库检索参考（用于回答，未命中业务规则时如实说明）】\n" + "\n\n---\n\n".join(parts)
     return out[:4000], cites
+
+
+def _build_memory_brief(db: Session, user: User | None) -> str:
+    """P4 记忆回注：取该用户最新一份记忆日报（mem:daily:*）正文前 800 字。
+
+    AITF_MEMORY_SYSTEM_BRIEF=1 才拼（可关）；guest 恒不拼；没有个人库或
+    尚无日报返回空串。拼进上下文时加「【记忆摘要】」头，让模型知道这是
+    该用户的历史记忆而非当前文档内容。
+    """
+    if not user or user.role == "guest":
+        return ""
+    if not config.AITF_MEMORY_SYSTEM_BRIEF:
+        return ""
+    from app.services.memory.store import get_personal_kb_id, read_memory_text
+
+    kb_id = get_personal_kb_id(db, user.id)  # 只读查询，绝不建库
+    if not kb_id:
+        return ""
+    row = db.execute(
+        select(Knowledge.id).where(
+            Knowledge.knowledge_base_id == kb_id,
+            Knowledge.source_key.like("mem:daily:%"),
+            Knowledge.deleted_at.is_(None),
+        ).order_by(Knowledge.updated_at.desc()).limit(1)
+    ).first()
+    if not row:
+        return ""
+    text = read_memory_text(db, row[0]).strip()
+    if not text:
+        return ""
+    return "【记忆摘要】\n" + text[:800]
 
 
 async def _run(db: Session, user: User | None, body: ChatIn, source: str,
@@ -267,10 +347,13 @@ async def _run(db: Session, user: User | None, body: ChatIn, source: str,
     # 附件文本由 POST /api/files 预先抽取落盘，这里按 file_id 读回
     attached = load_chat_file(body.file_id) if body.file_id else None
     attach_name = attached[0] if attached else ""
-    # 任务摘要 + 上传附件 + 知识库检索统一走 attached_text 注入
+    # P4 记忆回注：最新记忆日报摘要（guest 恒空；排在任务摘要之后、检索之前）
+    memory_brief = _build_memory_brief(db, user)
+    # 任务摘要 + 记忆摘要 + 知识库检索 + 上传附件统一走 attached_text 注入
     rag_ctx, citations = _build_rag_context(db, user, body)
     context = "\n\n".join(
-        x for x in (task_summary, rag_ctx, _build_attachment_context(attached)) if x
+        x for x in (task_summary, memory_brief, rag_ctx,
+                    _build_attachment_context(attached)) if x
     )
     # V4.1 引用溯源：正文 delta 之前发送，前端可先显示「引用 N 篇」。
     # 对所有对话生效（首页/知识库页），是否渲染由前端 showCitations 决定。

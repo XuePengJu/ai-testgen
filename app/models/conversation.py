@@ -8,7 +8,7 @@ from datetime import datetime
 
 from app.core.utils import utcnow
 
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -26,6 +26,15 @@ class Conversation(Base):
     # V4.1：会话模式与知识库归属——kb_qa 会话只在知识库页显示，与首页工作流隔离
     mode: Mapped[str | None] = mapped_column(String(16), default="workflow")
     kb_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # P0 对话记忆：提炼水位与手动整理状态机（由记忆调度任务读写）
+    mem_dirty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # 有待提炼增量
+    mem_last_msg_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 记忆提炼水位=最后处理过的 Message.id
+    mem_doc_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 会话记忆文档 id 冗余
+    mem_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 上次提炼成功时间
+    # 手动整理状态机：idle / running / done / failed
+    mem_status: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
+    mem_error: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 最近失败原因
 
 
 class Message(Base):

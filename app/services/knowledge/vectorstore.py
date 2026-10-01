@@ -160,6 +160,9 @@ def search(
 
     权限由调用方先查 MySQL 得出 ``visible_kb_ids``（visibility='global' OR user_id=me），
     这里用 kb_id IN 过滤——权限切换即时生效，避免向量 metadata 同步问题。
+    P4 语义：传入的是「已确定的检索范围」（含权限过滤，且强制并入了个人记忆库
+    kb_id），本函数不做任何权限/属主判断；调用方可分两次传入（个人库一次、
+    业务库一次）后按 chunk id 去重合并（见 chat._build_rag_context）。
     返回 [{id, score, document, metadata}]。
     """
     if not visible_kb_ids:

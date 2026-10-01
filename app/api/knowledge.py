@@ -24,7 +24,15 @@ from app.core.config import UPLOAD_DIR
 from app.core.db import get_db
 from app.models.knowledge import Chunk, ChunkRevision, Knowledge, KnowledgeBase
 from app.models.user import User
-from app.services.doc_extract import ExtractError, UnsupportedFormatError, extract_text, is_supported, supported_hint
+from app.services.doc_extract import (
+    SUPPORTED_EXTS,
+    ExtractError,
+    UnsupportedFormatError,
+    extract_text,
+    is_supported,
+    supported_hint,
+)
+from app.services.image_caption import IMAGE_EXTS
 from app.services.knowledge import vectorstore
 from app.services.knowledge.classify import normalize_category, parse_llm_category
 from app.services import llm_service
@@ -107,6 +115,7 @@ def _kb_json(kb: KnowledgeBase, stats: dict) -> dict:
         "visibility": kb.visibility,
         "type": kb.type,
         "user_id": kb.user_id,
+        "is_personal": bool(kb.is_personal),
         "doc_count": s["doc_count"],
         "chunk_count": s["chunk_count"],
         "created_at": kb.created_at.isoformat() if kb.created_at else None,
@@ -144,7 +153,24 @@ async def list_bases(user: User = Depends(get_current_user), db: Session = Depen
             ).order_by(KnowledgeBase.created_at.desc())
         ).scalars().all()
     stats = _doc_stats(db, [kb.id for kb in rows])
+    # 排序：个人记忆库置底，其余维持 created_at 倒序（sorted 稳定排序，组内顺序不变）。
+    # 理由：前端默认选中列表第一项，个人库是系统自动维护的记忆容器，置底避免被误选/误删。
+    rows = sorted(rows, key=lambda kb: bool(kb.is_personal))
     return {"items": [_kb_json(kb, stats) for kb in rows]}
+
+
+@router.get("/knowledge/supported-formats")
+async def supported_formats():
+    """上传格式白名单唯一真源（前端 accept 与提示文案从这里取，避免两边写歪）。
+
+    exts：可入库的文档/数据格式；images：可入库的图片格式（上传时由多模态
+    模型生成描述后入库）。
+    """
+    return {
+        "exts": [e for e in SUPPORTED_EXTS if e not in IMAGE_EXTS],
+        "images": list(IMAGE_EXTS),
+        "hint": supported_hint(),
+    }
 
 
 @router.post("/knowledge/bases", status_code=201)

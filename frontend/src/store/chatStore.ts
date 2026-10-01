@@ -10,7 +10,7 @@ import { create } from "zustand";
 import { api, API, toast } from "../api/client";
 import { sseStream } from "../api/sse";
 import { getAuthSnapshot } from "../contexts/authState";
-import type { ChatDraft, CitationItem, Conversation, Task } from "../types";
+import type { ChatDraft, CitationItem, Conversation, KbBaseItem, MemoryState, Task } from "../types";
 
 export interface ChatMsg {
   id: string;
@@ -112,8 +112,16 @@ interface ChatState {
 
   /** V5.8 知识库多选检索：勾选的库 id 列表（空 = 不检索）；跨会话保留，由 ChatPanel 知识库选择器驱动 */
   kbIds: string[];
+  /** V6.0 个人记忆库 id（/api/knowledge/bases 里 is_personal=true 的库；null = 未拉到/不存在） */
+  personalKbId: string | null;
+  /** V6.0 手动存入记忆库进行中（发起到轮询结束全程 true，期间按钮置灰防重复） */
+  memoryBusy: boolean;
+  /** V6.0 幂等并入个人库：拉 bases 找 is_personal → 不在 kbIds 则加入（重复调用安全） */
+  ensurePersonalKb: () => Promise<void>;
   toggleKb: (id: string) => void;
   clearKbs: () => void;
+  /** V6.0 手动「存入记忆库」：POST digest → 202 后轮询 state → done/failed/409/超限分别提示 */
+  digestMemory: (convId: string) => Promise<void>;
 
   refreshConversations: () => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
@@ -151,14 +159,110 @@ export const useChatStore = create<ChatState>((set, get) => ({
   iterGenerating: false,
   inputFocusSeq: 0,
   kbIds: [],
+  personalKbId: null,
+  memoryBusy: false,
+
+  async ensurePersonalKb() {
+    try {
+      const r = await api(API + "/knowledge/bases");
+      if (!r.ok) return;
+      const d = (await r.json()) as { items?: KbBaseItem[] };
+      const items = Array.isArray(d?.items) ? d.items : [];
+      const personal = items.find((k) => k?.is_personal && k.id);
+      if (!personal) return;
+      // 幂等：id 变化才写 personalKbId；kbIds 里没有才并入
+      if (get().personalKbId !== personal.id) set({ personalKbId: personal.id });
+      if (!get().kbIds.includes(personal.id)) {
+        set({ kbIds: [...get().kbIds, personal.id] });
+      }
+    } catch {
+      /* 拉取失败静默：个人库由服务端隐式并入检索，UI 下次打开再补 */
+    }
+  },
 
   toggleKb(id) {
+    // V6.0 个人记忆库强制勾选：点击/键盘触发都不改其状态
+    if (get().personalKbId === id) return;
     const cur = get().kbIds;
     set({ kbIds: cur.includes(id) ? cur.filter((k) => k !== id) : [...cur, id] });
   },
 
   clearKbs() {
-    set({ kbIds: [] });
+    // V6.0 「清空」只清附加库，个人记忆库保留（清完 re-add 个人库 id）
+    const pid = get().personalKbId;
+    set({ kbIds: pid ? [pid] : [] });
+  },
+
+  // V6.0 手动「存入记忆库」：发起 digest → 202 后每 2s 轮询 state（上限 45 次）。
+  // 轮询回调里校验当前 conversationId 与发起时一致，用户切换会话立即停止（防跨会话泄漏）；
+  // finally 必清 pending timer + 复位 memoryBusy，任何分支都不会卡死按钮。
+  async digestMemory(convId) {
+    if (!convId || get().memoryBusy) return;
+    const snap = getAuthSnapshot();
+    if (!snap.token || snap.me?.role === "guest") {
+      toast("注册后即可使用记忆库");
+      return;
+    }
+    set({ memoryBusy: true });
+    let timer: number | null = null;
+    try {
+      const r = await api(`${API}/conversations/${convId}/memory/digest`, { method: "POST" }).catch(() => null);
+      if (!r) {
+        toast("网络错误，发起整理失败，请稍后重试");
+        return;
+      }
+      if (r.status === 409) {
+        toast("该会话正在整理中，请稍候");
+        return;
+      }
+      if (r.status === 403) {
+        // 访客/无权限：后端 detail「注册后即可使用记忆库」，读不到用默认文案
+        let detail = "注册后即可使用记忆库";
+        try {
+          const j = (await r.json()) as { detail?: string };
+          if (j?.detail) detail = j.detail;
+        } catch { /* 非 JSON 错误体 */ }
+        toast(detail);
+        return;
+      }
+      if (!r.ok) {
+        let msg = "发起整理失败";
+        try {
+          const j = (await r.json()) as { detail?: string };
+          if (j?.detail) msg = j.detail;
+        } catch { /* 非 JSON 错误体 */ }
+        toast(msg);
+        return;
+      }
+      toast("正在整理本会话…");
+      for (let i = 0; i < 45; i++) {
+        await new Promise<void>((res) => {
+          timer = window.setTimeout(res, 2000);
+        });
+        timer = null;
+        // 切会话立即停止：结果归属旧会话，不再打扰当前界面
+        if (get().conversationId !== convId) return;
+        const sr = await api(`${API}/conversations/${convId}/memory/state`).catch(() => null);
+        if (!sr || !sr.ok) continue; // 单次轮询失败不终止，等下一轮
+        const st = (await sr.json()) as MemoryState;
+        if (st.status === "done") {
+          toast("已存入记忆库");
+          void get().ensurePersonalKb(); // 幂等并入（首次整理时个人库可能刚创建）
+          // 通知界面刷新库列表（ChatPanel 监听后重拉 bases，让 🧠 徽章/计数即时可见）
+          window.dispatchEvent(new CustomEvent("kb-refresh"));
+          return;
+        }
+        if (st.status === "failed") {
+          toast("整理失败：" + (st.error || "未知原因"));
+          return;
+        }
+        // running / idle：继续等下一轮
+      }
+      toast("整理耗时较长，请稍后在「知识库」页查看结果");
+    } finally {
+      if (timer !== null) window.clearTimeout(timer);
+      set({ memoryBusy: false });
+    }
   },
 
   async refreshConversations() {

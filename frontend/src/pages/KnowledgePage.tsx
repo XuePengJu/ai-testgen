@@ -23,6 +23,8 @@ interface KB {
   id: string; name: string; description: string; visibility: string;
   type: string; user_id: number; doc_count: number; chunk_count: number;
   created_at: string | null;
+  /** V6.0 个人记忆库标记：对话记忆自动沉淀的库，隐藏删除入口 */
+  is_personal?: boolean;
 }
 interface Doc {
   id: string; knowledge_base_id: string; title: string; file_name: string;
@@ -274,7 +276,10 @@ function KbActions({ kb, onChanged }: { kb: KB; onChanged: () => void }) {
       <button className="btn ghost btn-sm" onClick={toggleVis} title={kb.visibility === "global" ? "当前全局共享 → 改为私有" : "当前私有 → 改为全局共享"}>
         {kb.visibility === "global" ? "设为私有" : "设为共享"}
       </button>
-      <button className="btn ghost btn-sm danger" onClick={del} title="删除知识库"><Trash2 size={13} /></button>
+      {/* V6.0：个人记忆库由系统维护，隐藏删除入口（防误删记忆沉淀） */}
+      {!kb.is_personal && (
+        <button className="btn ghost btn-sm danger" onClick={del} title="删除知识库"><Trash2 size={13} /></button>
+      )}
       {editing && (
         <div className="kb-edit-pop">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="名称" />
@@ -435,9 +440,16 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
 
   return (
     <div className="kb-panel">
-      {/* 库头：库名 + 可见性徽章 + 统计 */}
+      {/* 库头：库名 + 个人库🧠标识 + 可见性徽章 + 统计 */}
       <header className="kb-lib-head">
-        <h2 className="kb-lib-name" title={kb.name}>{kb.name}</h2>
+        <h2 className="kb-lib-name" title={kb.name}>
+          {kb.is_personal ? "🧠 " : ""}{kb.name}
+        </h2>
+        {kb.is_personal && (
+          <span className="kb-vis private" title="个人记忆库：由对话记忆自动沉淀，始终参与检索">
+            个人记忆库
+          </span>
+        )}
         <span className={"kb-vis " + kb.visibility}>{kb.visibility === "global" ? "共享" : "私有"}</span>
         <span className="kb-lib-stats muted">
           {docs.length} 个文档 · {totalChunks} 片段 · 最近更新 {latest ? fmtDate(latest) : "—"}

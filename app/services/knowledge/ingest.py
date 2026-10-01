@@ -110,6 +110,13 @@ def ingest_document(
     成功后 knowledge.parse_status='ready'；任何失败抛 IngestError（内部状态
     已回滚为 failed，chunks 行与向量由调用方清理）。
     """
+    # 空文本守卫（P1）：无描述图片 / 空文档按 0 分块直接 ready，不当作失败——
+    # 图片描述失败时上传链路必须照常走通（描述可由 ingest_pending_attachments 补跑）
+    if not (text or "").strip():
+        knowledge.chunk_count = 0
+        _update_status(db, knowledge, "ready")
+        logger.info("空文本文档直接就绪 %s（0 分块）", knowledge.id)
+        return 0
     _update_status(db, knowledge, "parsing")
     try:
         # 0) 注入 embedding 配置（库创建者个人配置 > 平台 > 环境变量 > mock；与检索同源）

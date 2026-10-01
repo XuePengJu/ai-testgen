@@ -5,27 +5,36 @@
 - V4.1：会话带 mode（workflow/kb_qa）与 kb_id，列表支持 ?mode= 过滤，
   知识库问答会话与首页工作流会话互不污染
 - V5.9：PATCH 手动重命名 + POST ai-title（AI 总结生成标题，覆盖不准的首条截断标题）
+- P2：POST memory/digest（手动触发记忆提炼）+ GET memory/state（提炼状态机查询）；
+  DELETE 级联补齐该会话记忆文档/附件入库文档的向量与行数据清理
 """
 import json
+import logging
 import re
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.tasks import _parse_cases, _delete_task_cascade
+from app.core import config
 from app.core.config import OUTPUT_DIR
 from app.core.db import get_db
 from app.core.utils import utcnow
+from app.models.chat_file import ChatAttachment
 from app.models.conversation import Conversation, Message
+from app.models.knowledge import Knowledge
 from app.models.task import Task, StepLog
 from app.models.user import User
 from app.schemas.conversation import ConversationOut, MessageOut
 
 router = APIRouter(prefix="/conversations", tags=["会话"])
+
+logger = logging.getLogger("api.conversations")
 
 
 class ConversationIn(BaseModel):
@@ -247,6 +256,107 @@ def ai_title_conversation(conv_id: str,
     return {"ok": True, "title": title}
 
 
+# ---- P2 手动记忆提炼 ----
+
+def _bg_manual_digest(conv_id: str) -> None:
+    """后台执行手动记忆提炼（BackgroundTasks 回调，独立 DB 会话）。
+
+    状态机铁律（R12）：finally 必写回 mem_status 并 commit——任何异常路径
+    都不允许把会话留在 running，否则前端按钮永久禁用。失败写 mem_status=failed
+    + mem_error（截 500 字，与列宽一致）。
+    """
+    from app.core.db import SessionLocal
+    from app.jobs.chat_memory import process_conversation
+
+    db = SessionLocal()
+    try:
+        try:
+            conv = db.get(Conversation, conv_id)
+            if conv is None:  # 会话已被并发删除：无需状态回写
+                return
+            process_conversation(db, conv, manual=True)
+            conv.mem_status = "done"
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            conv = db.get(Conversation, conv_id)  # rollback 后重取再写失败态
+            if conv is not None:
+                conv.mem_status = "failed"
+                conv.mem_error = str(e)[:500]
+                logger.warning("手动记忆提炼失败 conv=%s：%s", conv_id, str(e)[:200])
+        finally:
+            db.commit()
+    finally:
+        db.close()
+
+
+@router.post("/{conv_id}/memory/digest", status_code=202)
+def digest_conversation(conv_id: str,
+                        background_tasks: BackgroundTasks,
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """P2 手动触发会话记忆提炼（前端「整理记忆」按钮）。
+
+    - guest → 403（注册后即可使用记忆库）；开关未开 → 403 带说明
+    - 条件 UPDATE 抢占：mem_status != running 才置 running，撞上 = 409 正在整理
+    - 抢占成功后交给 BackgroundTasks 异步执行，立即返回 202 running
+    """
+    c = _own_conversation(db, user, conv_id)
+    if user.role == "guest":
+        raise HTTPException(status_code=403, detail="注册后即可使用记忆库")
+    if not config.AITF_MEMORY_ENABLED or not config.AITF_MEMORY_DIGEST_MANUAL:
+        raise HTTPException(status_code=403, detail="对话记忆整理功能未开启，请联系管理员")
+    # 条件 UPDATE 抢占（跨方言一致；rowcount=0 说明已被占，防并发双跑烧 LLM）
+    res = db.execute(
+        update(Conversation)
+        .where(Conversation.id == conv_id, Conversation.mem_status != "running")
+        .values(mem_status="running", mem_at=utcnow(), mem_error=None)
+    )
+    db.commit()
+    if res.rowcount == 0:
+        raise HTTPException(status_code=409, detail="正在整理中，请稍候")
+    background_tasks.add_task(_bg_manual_digest, conv_id)
+    return {"status": "running"}
+
+
+@router.get("/{conv_id}/memory/state")
+def memory_state(conv_id: str,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """P2 会话记忆状态机查询（前端按钮可用性/进度展示）。
+
+    自愈：running 超 5 分钟视为进程重启残留 → 回落 idle 并落库（防按钮永久禁用）。
+    返回提炼状态 + 水位时间 + 记忆文档 id + 最近失败原因 + 消息/附件计数。
+    """
+    c = _own_conversation(db, user, conv_id)
+    now = utcnow()
+    if (c.mem_status == "running" and c.mem_at
+            and (now - c.mem_at).total_seconds() > 300):
+        c.mem_status = "idle"
+        db.commit()
+        db.refresh(c)
+    msg_count = db.execute(
+        select(func.count()).select_from(Message)
+        .where(Message.conversation_id == conv_id)
+    ).scalar_one()
+    att_total = db.execute(
+        select(func.count()).select_from(ChatAttachment)
+        .where(ChatAttachment.conversation_id == conv_id)
+    ).scalar_one()
+    att_done = db.execute(
+        select(func.count()).select_from(ChatAttachment)
+        .where(ChatAttachment.conversation_id == conv_id,
+               ChatAttachment.knowledge_id.isnot(None))
+    ).scalar_one()
+    return {
+        "status": c.mem_status or "idle",
+        "mem_at": c.mem_at.isoformat() if c.mem_at else None,
+        "doc_id": c.mem_doc_id,
+        "error": c.mem_error,
+        "msg_count": msg_count,
+        "attachments": {"total": att_total, "done": att_done},
+    }
+
+
 @router.post("/{conv_id}/messages", response_model=MessageOut, status_code=201)
 def add_message(conv_id: str, body: MessageIn,
                 user: User = Depends(get_current_user),
@@ -268,11 +378,59 @@ def add_message(conv_id: str, body: MessageIn,
     )
 
 
+def _delete_conversation_knowledge(db: Session, conv: Conversation) -> int:
+    """P2 级联清理：删该会话的记忆文档 + 附件入库文档（向量 + 行 + 副本文件）。
+
+    覆盖三类来源：conv.mem_doc_id 冗余指针、source_key=mem:conv:* 兜底、
+    附件登记行回填的 knowledge_id。物理删除 Knowledge 行（个人库数据随会话
+    走，不留软删孤儿），向量与 chunks 走 delete_document_vectors。
+    """
+    from app.services.knowledge.ingest import delete_document_vectors
+
+    doc_ids: set[str] = set()
+    if conv.mem_doc_id:
+        doc_ids.add(conv.mem_doc_id)
+    # 兜底：mem_doc_id 冗余可能缺失/不同步，按 source_key 再查一次会话记忆文档
+    sk_doc = db.execute(
+        select(Knowledge).where(
+            Knowledge.source_key == f"mem:conv:{conv.user_id}:{conv.id}")
+    ).scalars().first()
+    if sk_doc:
+        doc_ids.add(sk_doc.id)
+    atts = db.execute(
+        select(ChatAttachment).where(ChatAttachment.conversation_id == conv.id)
+    ).scalars().all()
+    for a in atts:
+        if a.knowledge_id:
+            doc_ids.add(a.knowledge_id)
+
+    deleted_docs = 0
+    for doc_id in doc_ids:
+        doc = db.get(Knowledge, doc_id)
+        if not doc:
+            continue
+        delete_document_vectors(db, doc_id)  # Chroma 向量 + chunks 行（内部 commit）
+        # 副本文件（uploads/knowledge/{kb_id}/ 下，P1 上传统一登记的物理副本）
+        if doc.file_path:
+            try:
+                Path(doc.file_path).unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("副本文件删除失败 %s：%s", doc.file_path, e)
+        db.delete(doc)
+        deleted_docs += 1
+    # 附件登记行随会话删除（uploads/chat 原件保留，属用户上传资产不在此清）
+    for a in atts:
+        db.delete(a)
+    db.commit()
+    return deleted_docs
+
+
 @router.delete("/{conv_id}")
 def delete_conversation(conv_id: str,
                         user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
-    """删除整个会话：连带删该会话下所有任务（StepLog + 导出文件）+ 所有消息 + 会话本身。
+    """删除整个会话：连带删该会话下所有任务（StepLog + 导出文件）+ 所有消息
+    + 会话记忆/附件入库文档（向量 + 行 + 副本文件）+ 附件登记行 + 会话本身。
     对话一旦删除不可恢复——前端应弹确认窗。"""
     c = _own_conversation(db, user, conv_id)
     # 1. 连带删除该会话下所有任务
@@ -285,7 +443,10 @@ def delete_conversation(conv_id: str,
         db.delete(t)
     # 2. 删该会话的所有消息
     db.execute(delete(Message).where(Message.conversation_id == conv_id))
-    # 3. 删会话本身
+    # 3. P2 级联：记忆文档 + 附件入库文档（向量/行/副本文件）+ 附件登记行
+    deleted_docs = _delete_conversation_knowledge(db, c)
+    # 4. 删会话本身
     db.delete(c)
     db.commit()
-    return {"ok": True, "deleted_tasks": len(tasks), "deleted_files": deleted_files}
+    return {"ok": True, "deleted_tasks": len(tasks), "deleted_files": deleted_files,
+            "deleted_docs": deleted_docs}

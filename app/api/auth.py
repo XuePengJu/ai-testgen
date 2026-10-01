@@ -1,4 +1,5 @@
 """注册 / 登录 / 改密 / 当前用户信息。"""
+import logging
 import re
 import time
 from datetime import datetime
@@ -17,6 +18,8 @@ from app.core.db import get_db
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+logger = logging.getLogger("api.auth")
 
 # ---- 登录限速（内存计数，单进程）：失败 5 次锁 10 分钟 ----
 _LOGIN_FAILS: dict[str, list[float]] = {}
@@ -104,6 +107,13 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     # 新账号播种示例分类与示例任务（失败不影响注册）
     from app.services.sample_seeder import seed_sample_tasks
     seed_sample_tasks(db, user)
+
+    # P0：注册即建个人记忆库（幂等；失败只记日志，绝不能让注册 500）
+    try:
+        from app.services.memory.store import ensure_personal_kb
+        ensure_personal_kb(db, user)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("注册后建个人记忆库失败（不影响注册）：user=%s err=%s", user.id, e)
 
     # 注册即登录：直接下发 token + 加密会话密钥（密钥分发通道，响应永远明文）
     token = security.create_token(user.id, user.username, user.role)

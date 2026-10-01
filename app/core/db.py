@@ -77,6 +77,10 @@ def init_db() -> None:
     import app.models.conversation  # noqa: F401
     import app.models.knowledge  # noqa: F401  # V4.0 RAG 知识库（7 张表）
     import app.models.llm_pool  # noqa: F401  # V5.0 P1：多模型池 llm_model_pool
+    import app.models.llm_usage  # noqa: F401  # V5.12：LLM 调用用量
+    import app.models.request_stat  # noqa: F401  # V5.12：HTTP 请求量统计
+    import app.models.chat_file  # noqa: F401  # P0：聊天附件表
+    import app.models.job  # noqa: F401  # P0：后台任务运行表
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
 
@@ -194,6 +198,84 @@ def _ensure_columns() -> None:
                     "ALTER TABLE execution_runs MODIFY COLUMN report_json MEDIUMTEXT"))
                 conn.commit()
                 logger.warning("report_json 列已从 %s 扩容为 MEDIUMTEXT", rtype)
+
+    # ============ P0 对话记忆 + 个人知识库：补列 / 建表 / 幂等索引 ============
+    # knowledge_bases 补列：is_personal 个人记忆库标记（每人至多一个，私密可见）
+    # 布尔列统一 TINYINT(1) NOT NULL DEFAULT 0（SQLite 按亲和性收 BOOLEAN，MySQL 即 BOOLEAN 底层）
+    if insp.has_table("knowledge_bases"):
+        pkb_cols = {c["name"] for c in insp.get_columns("knowledge_bases")}
+        if "is_personal" not in pkb_cols:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE knowledge_bases ADD COLUMN is_personal TINYINT(1) NOT NULL DEFAULT 0"))
+                conn.commit()
+
+    # knowledges 补列：source_key 幂等覆盖键（非记忆/附件文档为 NULL）+ 唯一索引
+    if insp.has_table("knowledges"):
+        src_cols = {c["name"] for c in insp.get_columns("knowledges")}
+        if "source_key" not in src_cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE knowledges ADD COLUMN source_key VARCHAR(128)"))
+                conn.commit()
+        # 幂等建唯一索引（新列全为 NULL，唯一索引不冲突；MySQL 不支持 IF NOT EXISTS 故先查再建）
+        src_idx = {i["name"] for i in sa_inspect(engine).get_indexes("knowledges")}
+        if "uq_knowledges_source_key" not in src_idx:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_knowledges_source_key ON knowledges (source_key)"))
+                conn.commit()
+
+    # conversations 补列：对话记忆提炼水位与手动整理状态机 6 列
+    if insp.has_table("conversations"):
+        mem_cols = {c["name"] for c in insp.get_columns("conversations")}
+        mem_alters = []
+        if "mem_dirty" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_dirty TINYINT(1) NOT NULL DEFAULT 0")
+        if "mem_last_msg_id" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_last_msg_id INTEGER")
+        if "mem_doc_id" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_doc_id VARCHAR(64)")
+        if "mem_at" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_at DATETIME")
+        if "mem_status" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_status VARCHAR(16) NOT NULL DEFAULT 'idle'")
+        if "mem_error" not in mem_cols:
+            mem_alters.append("ADD COLUMN mem_error VARCHAR(500)")
+        if mem_alters:
+            with engine.connect() as conn:
+                for a in mem_alters:
+                    conn.execute(text(f"ALTER TABLE conversations {a}"))
+                conn.commit()
+        # mem_dirty 索引（待提炼会话扫描用；幂等先查再建）
+        mem_idx = {i["name"] for i in sa_inspect(engine).get_indexes("conversations")}
+        if "idx_conversations_mem_dirty" not in mem_idx:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE INDEX idx_conversations_mem_dirty ON conversations (mem_dirty)"))
+                conn.commit()
+
+    # 新表：chat_attachments（聊天附件）/ job_runs（任务运行记录）
+    # create_all 已随模型导入建齐；此处兜底（老库因故缺表时按 metadata 单独补建）
+    if not insp.has_table("chat_attachments"):
+        Base.metadata.tables["chat_attachments"].create(bind=engine)
+    if not insp.has_table("job_runs"):
+        Base.metadata.tables["job_runs"].create(bind=engine)
+
+    # 兜底唯一索引（正常由建表时的 Index(unique=True) 带出；缺则幂等补建）
+    if insp.has_table("job_runs"):
+        job_idx = {i["name"] for i in sa_inspect(engine).get_indexes("job_runs")}
+        if "uq_job_runs_job_date" not in job_idx:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_job_runs_job_date ON job_runs (job_id, biz_date)"))
+                conn.commit()
+    if insp.has_table("chat_attachments"):
+        att_idx = {i["name"] for i in sa_inspect(engine).get_indexes("chat_attachments")}
+        if "uq_chat_attachments_file_id" not in att_idx:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_chat_attachments_file_id ON chat_attachments (file_id)"))
+                conn.commit()
 
 
 def get_db():

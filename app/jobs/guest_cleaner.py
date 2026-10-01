@@ -28,24 +28,29 @@ def ensure_shared_guest(db: Session) -> User:
     u = db.execute(
         select(User).where(User.username == SHARED_GUEST_USERNAME)
     ).scalar_one_or_none()
-    if u:
-        return u
-    u = User(
-        username=SHARED_GUEST_USERNAME,
-        role="guest",
-        data_dir="guest_shared",
-        is_active=True,
-    )
-    db.add(u)
-    db.commit()
-    db.refresh(u)
-    # 新账号播种示例分类与示例任务（失败不影响启动）
-    from app.services.sample_seeder import seed_sample_tasks
+    if not u:
+        u = User(
+            username=SHARED_GUEST_USERNAME,
+            role="guest",
+            data_dir="guest_shared",
+            is_active=True,
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        # 新账号播种示例分类与示例任务（失败不影响启动）
+        from app.services.sample_seeder import seed_sample_tasks
+        try:
+            seed_sample_tasks(db, u)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("seed sample tasks for shared guest failed: %s", e)
+        logger.info("seeded shared guest account (id=%s)", u.id)
+    # P0：guest 也保证有个人记忆库（幂等；记忆提炼阶段通过 AITF_MEMORY_SKIP_GUEST 跳过访客）
     try:
-        seed_sample_tasks(db, u)
+        from app.services.memory.store import ensure_personal_kb
+        ensure_personal_kb(db, u)
     except Exception as e:  # noqa: BLE001
-        logger.warning("seed sample tasks for shared guest failed: %s", e)
-    logger.info("seeded shared guest account (id=%s)", u.id)
+        logger.warning("ensure personal kb for guest failed: %s", e)
     return u
 
 
@@ -78,7 +83,7 @@ def reset_shared_guest_data(db: Session) -> dict:
 
 
 def _delete_user_data(db: Session, guest: User) -> dict:
-    """级联删 tasks / step_logs / 示例分类 + 删文件目录，保留用户记录。"""
+    """级联删 tasks / step_logs / 示例分类 / 知识库 + 删文件目录，保留用户记录。"""
     deleted_tasks = db.execute(
         select(func.count()).select_from(Task).where(Task.user_id == guest.id)
     ).scalar_one()
@@ -88,6 +93,12 @@ def _delete_user_data(db: Session, guest: User) -> dict:
     if task_ids:
         db.execute(delete(StepLog).where(StepLog.task_id.in_(task_ids)))
         db.execute(delete(Task).where(Task.user_id == guest.id))
+    # P0：级联清知识库行数据与向量（不清会留孤儿；失败只记日志不阻断）
+    try:
+        from app.services.memory.store import purge_user_knowledge
+        purge_user_knowledge(db, guest.id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("purge knowledge for guest %s failed: %s", guest.id, e)
     deleted_files = 0
     if guest.data_dir:
         for base in (UPLOAD_DIR, OUTPUT_DIR):
