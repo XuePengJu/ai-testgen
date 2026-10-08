@@ -10,6 +10,10 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+# 必须在任何 chromadb 相关 import 之前：系统 sqlite3 < 3.35 时切换为 pysqlite3，
+# 否则 ChromaDB 会直接抛 RuntimeError，导致向量库/知识库整体不可用（详见模块注释）。
+from app.core import sqlite_compat  # noqa: F401  isort:skip
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse

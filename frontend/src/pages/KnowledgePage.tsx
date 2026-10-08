@@ -317,12 +317,17 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
   const [kw, setKw] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // V7.6 多选批量删除：选中的文档 id 集合（只读模式不启用）
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null); // V5.11：整目录选择（webkitdirectory）
 
   const load = useCallback(async () => {
     const data = await apiJson<{ items: Doc[] }>(`/api/knowledge/bases/${kb.id}/documents`);
-    setDocs(data?.items ?? []);
+    const items = data?.items ?? [];
+    setDocs(items);
+    // 选中集合始终跟随真实数据：文档被删掉/换库后不留幽灵选中项
+    setSelected((prev) => new Set([...prev].filter((id) => items.some((d) => d.id === id))));
   }, [kb.id]);
   useEffect(() => { void load(); }, [load]);
 
@@ -436,6 +441,54 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
     if (r.ok) { toast("已删除"); void load(); if (detail?.doc.id === doc.id) setDetail(null); }
   };
 
+  /* ---- V7.6 多选批量删除 ---- */
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  /** 全选/取消全选：只作用于**当前筛选结果**（filtered），不是整库 */
+  const toggleAll = (checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const d of filtered) { if (checked) next.add(d.id); else next.delete(d.id); }
+      return next;
+    });
+  };
+  const delSelected = async () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!window.confirm(
+      `确认删除选中的 ${ids.length} 篇文档？\n\n其分块与向量将一并清除，且不可恢复。`)) return;
+    setBusy(true);
+    try {
+      const r = await api("/api/knowledge/documents/batch-delete", {
+        method: "POST", body: JSON.stringify({ ids }),
+      });
+      if (r.ok) {
+        const d = await r.json().catch(() => null) as
+          { deleted?: number; skipped?: number[] | string[]; failed?: unknown[] } | null;
+        const nDel = d?.deleted ?? 0;
+        const nSkip = d?.skipped?.length ?? 0;
+        const nFail = d?.failed?.length ?? 0;
+        toast(`已删除 ${nDel} 篇` + (nSkip ? `，跳过 ${nSkip} 篇（无权限或已不存在）` : "")
+              + (nFail ? `，失败 ${nFail} 篇` : ""));
+        setSelected(new Set());
+        // 若正在看的分块面板对应的文档已被删，关掉它
+        if (detail && ids.includes(detail.doc.id)) setDetail(null);
+        void load();
+      } else {
+        let msg = `批量删除失败（HTTP ${r.status}）`;
+        try { const e = await r.json(); if (e?.detail) msg = typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail); } catch { /* 忽略 */ }
+        toast(msg);
+      }
+    } catch {
+      toast("批量删除请求失败：网络错误或后端无响应");
+    } finally { setBusy(false); }
+  };
+
   /* 库头统计 + 工具栏过滤数据（从现有列表聚合，不发额外请求） */
   const totalChunks = docs.reduce((a, d) => a + (d.chunk_count || 0), 0);
   const latest = docs.reduce<string | null>((acc, d) => {
@@ -452,6 +505,14 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
       || (d.file_name || "").toLowerCase().includes(kwLower)
       || summary.toLowerCase().includes(kwLower);
   });
+
+  // V7.6 多选：全选态 / 半选态（半选只能靠 DOM 的 indeterminate，React 没有对应属性）
+  const selAllRef = useRef<HTMLInputElement>(null);
+  const allChecked = filtered.length > 0 && filtered.every((d) => selected.has(d.id));
+  const someChecked = !allChecked && filtered.some((d) => selected.has(d.id));
+  useEffect(() => {
+    if (selAllRef.current) selAllRef.current.indeterminate = someChecked;
+  }, [someChecked]);
 
   return (
     <div className="kb-panel">
@@ -511,6 +572,26 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
         ) : (
           <span className="muted" style={{ fontSize: 12.5 }}>👤 访客只读模式：仅可浏览与检索，不支持上传/修改</span>
         )}
+        {/* V7.6 多选批量删除：全选（仅作用于当前筛选结果）+ 删除选中 */}
+        {!readOnly && filtered.length > 0 && (
+          <label className="kb-selall" title="全选当前筛选出的文档">
+            <input ref={selAllRef} type="checkbox" checked={allChecked}
+              onChange={(e) => toggleAll(e.target.checked)} />
+            全选
+          </label>
+        )}
+        {!readOnly && selected.size > 0 && (
+          <>
+            <span className="muted" style={{ fontSize: 12.5 }}>已选 {selected.size} 篇</span>
+            <button className="btn btn-sm danger" disabled={busy} onClick={() => void delSelected()}
+              title="删除选中的文档（分块与向量一并清除）">
+              <Trash2 size={13} /> 删除选中
+            </button>
+            <button className="btn btn-sm ghost" disabled={busy} onClick={() => setSelected(new Set())}>
+              取消选择
+            </button>
+          </>
+        )}
         {filtered.length !== docs.length && <span className="muted" style={{ fontSize: 12 }}>筛选出 {filtered.length}/{docs.length} 篇</span>}
       </div>
 
@@ -552,8 +633,18 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
           const cat = (d.wiki_category || "").trim();
           return (
             <article key={d.id}
-              className={"doc-row" + (failed ? " row-err" : running ? " row-run" : "")}
+              className={"doc-row" + (failed ? " row-err" : running ? " row-run" : "")
+                + (selected.has(d.id) ? " row-sel" : "")}
               data-doc-id={d.id} onClick={() => void openDetail(d)}>
+              {/* V7.6 多选：stopPropagation 避免点复选框时顺带打开右侧分块面板 */}
+              {!readOnly && (
+                <label className="doc-row-check" onClick={(e) => e.stopPropagation()}
+                  title={selected.has(d.id) ? "取消选择" : "选择该文档"}>
+                  <input type="checkbox" checked={selected.has(d.id)}
+                    onChange={() => toggleOne(d.id)}
+                    aria-label={`选择文档 ${cleanTitle(d.file_name || d.title)}`} />
+                </label>
+              )}
               <span className="doc-type-ic" style={{ background: meta.color + "1a", color: meta.color }}>{meta.abbr}</span>
               <div className="doc-row-main">
                 <div className="doc-row-titleline">

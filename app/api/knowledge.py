@@ -541,6 +541,67 @@ async def delete_document(
     return {"ok": True}
 
 
+class BatchDeleteIn(BaseModel):
+    """批量删除入参。"""
+    ids: list[str]
+
+
+@router.post("/knowledge/documents/batch-delete")
+async def batch_delete_documents(
+    body: BatchDeleteIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量删除文档（软删记录 + 清分块与向量），逐个判权限。
+
+    与单删接口同一套语义（``_can_manage`` = 创建者或 admin），区别是**不因个别文档
+    越权/不存在而整批失败**：不可删的进 ``skipped``，删除过程出错的进 ``failed``，
+    其余照删，前端据此提示「成功 N 条，跳过 M 条」。
+
+    - ``ids`` 去重且保序（重复提交同一批不会重复计数）
+    - 单次上限 500 条，超出直接 400（防误传全库）
+    - 返回 ``{ok, deleted, skipped, failed, total}``
+    """
+    ids = [i for i in dict.fromkeys(body.ids or []) if i]
+    if not ids:
+        return {"ok": True, "deleted": 0, "skipped": [], "failed": [], "total": 0}
+    if len(ids) > 500:
+        raise HTTPException(status_code=400, detail="单次最多批量删除 500 个文档")
+
+    # 一次查回来，避免 N+1；只取未删除的行
+    rows = db.execute(
+        select(Knowledge).where(Knowledge.id.in_(ids), Knowledge.deleted_at.is_(None))
+    ).scalars().all()
+    found = {d.id: d for d in rows}
+
+    skipped: list[str] = []
+    failed: list[dict] = []
+    deleted = 0
+    for doc_id in ids:
+        doc = found.get(doc_id)
+        if doc is None:
+            skipped.append(doc_id)          # 不存在或已被删除
+            continue
+        kb = db.get(KnowledgeBase, doc.knowledge_base_id)
+        if kb is None or not _can_manage(user, kb):
+            skipped.append(doc_id)          # 无权管理
+            continue
+        try:
+            delete_document_vectors(db, doc_id)   # 内部会 commit（清分块 + 向量）
+            doc.deleted_at = _now()
+            db.commit()
+            deleted += 1
+        except Exception as e:  # noqa: BLE001  单条失败不影响其余
+            db.rollback()
+            logger.warning("批量删除文档 %s 失败：%s", doc_id, e)
+            failed.append({"id": doc_id, "reason": str(e)[:200]})
+
+    logger.info("批量删除文档：请求 %s 条，成功 %s，跳过 %s，失败 %s",
+                len(ids), deleted, len(skipped), len(failed))
+    return {"ok": True, "deleted": deleted, "skipped": skipped,
+            "failed": failed, "total": len(ids)}
+
+
 # ---------------- 分块编辑（可审可干预） ----------------
 
 class ChunkUpdate(BaseModel):

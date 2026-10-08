@@ -24,6 +24,11 @@ langsmith==0.12.5
 # ===== V4.0 RAG 知识库 =====
 chromadb==1.5.9
 rank_bm25>=0.2.2
+# ChromaDB 内部用 SQLite 文件存向量，硬要求 sqlite3>=3.35；系统版本偏老时（如 CentOS 7 的
+# 3.26）由 app/core/sqlite_compat.py 把它顶替进 sys.modules["sqlite3"]。
+# 只对 Linux 安装：macOS 自带新版 sqlite3 用不到它，且 PyPI 没有 macOS 轮子 —— 无条件写会
+# 让本地 pip install 直接失败。
+pysqlite3-binary; sys_platform == "linux"
 
 # ===== P1 图片附件入库（image_caption 压缩/转码）=====
 pillow>=10

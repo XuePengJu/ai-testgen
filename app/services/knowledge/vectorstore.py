@@ -86,6 +86,10 @@ def _mock_vector(text: str) -> list[float]:
 
 def _collection():
     """惰性获取持久化 Chroma collection（单例由 chromadb 内部管理）。"""
+    # ⚠️ 必须先跑 sqlite3 兼容垫片，再 import chromadb：
+    # Chroma 内部用 SQLite 文件存向量，硬要求 sqlite3>=3.35；系统版本偏老时会直接抛错。
+    # 垫片只在版本不足时动作，且 chromadb 只在这里 import —— 放这里是最稳的覆盖点。
+    from app.core import sqlite_compat  # noqa: F401
     import chromadb
     client = chromadb.PersistentClient(path=str(VECTOR_DIR))
     return client.get_or_create_collection(

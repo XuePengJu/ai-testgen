@@ -2247,6 +2247,15 @@ button.cl-select:hover { background: #f5f7fa; }
 .doc-row.row-err { background: var(--danger-50, #fef2f2); }
 .doc-row.row-err:hover { background: #fde3e3; }
 .doc-row.row-run { background: var(--itf-p50, #eef2ff); }
+/* V7.6 多选：选中行加浅蓝底 + 左侧强调边，跟 hover/异常态区分开 */
+.doc-row.row-sel { background: #eef4ff; box-shadow: inset 3px 0 0 var(--itf-p600, #4f46e5); }
+.doc-row.row-sel:hover { background: #e3ecff; }
+/* 复选框：只在非只读模式渲染；stopPropagation 已在 JSX 里做，这里只管长相与命中区 */
+.doc-row-check { flex: none; display: flex; align-items: center; cursor: pointer; padding: 2px; }
+.doc-row-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--itf-p600, #4f46e5); }
+/* 工具栏的「全选」 */
+.kb-selall { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--itf-ink600, #475569); cursor: pointer; user-select: none; white-space: nowrap; }
+.kb-selall input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--itf-p600, #4f46e5); }
 .doc-row.row-run:hover { background: #e0e7ff; }
 .doc-type-ic {
   flex: none; width: 40px; height: 40px; border-radius: 9px;
