@@ -81,6 +81,11 @@ export default function App() {
   );
   useEffect(() => { localStorage.setItem("aitf_rail_collapsed", railCollapsed ? "1" : "0"); }, [railCollapsed]);
 
+  // V7.4.2：AI 会话里点引用 chip → 带着「文档 id + 命中分块 id」跳到知识库页定位。
+  // 用 props 下传而非 nav-to 事件：事件是同步 dispatch，而 KnowledgePage 此刻还没挂载，
+  // 监听器注册不上会直接丢消息（时序坑）。
+  const [citeTarget, setCiteTarget] = useState<{ docId: string; chunkId?: string } | null>(null);
+
   // V4.5.3 被测系统子菜单：数据源数组，后续加链接只需在 TARGETS 里追加一行
   // W3 M8：显示名规范为「被测系统 · DBERP」
   const TARGETS: { name: string; url: string }[] = [
@@ -276,11 +281,22 @@ export default function App() {
         {view === "main" && (
           <main className="app-main app-main-chat">
             <ConversationPicker />
-            <ChatPanel showCitations />
+            <ChatPanel
+              showCitations
+              onCiteClick={(docId, chunkId) => {
+                setCiteTarget({ docId, chunkId });
+                setView("knowledge");
+              }}
+            />
           </main>
         )}
         {view === "cases" && <CaseLibraryPage />}
-        {view === "knowledge" && <KnowledgePage />}
+        {view === "knowledge" && (
+          <KnowledgePage
+            citeTarget={citeTarget}
+            onCiteConsumed={() => setCiteTarget(null)}
+          />
+        )}
         {view === "models" && <ModelConfigPage />}
         {view === "settings" && <SettingsPage />}
         {view === "admin" && <AdminPage />}

@@ -99,7 +99,8 @@ export default function MessageView({
 }: {
   msg: ChatMsg;
   showCitations?: boolean;
-  onCiteClick?: (knowledgeId: string) => void;
+  /** V7.4.2：第二参为命中的分块 id，跳过去后滚动高亮到该分块 */
+  onCiteClick?: (knowledgeId: string, chunkId?: string) => void;
 }) {
   const streaming = msg.state === "streaming";
   const confirmCreateTask = useChatStore((s) => s.confirmCreateTask);

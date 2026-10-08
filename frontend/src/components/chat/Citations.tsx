@@ -1,7 +1,8 @@
 /**
  * V4.1 引用溯源 chips：AI 回答下方展示 RAG 命中的知识库条目，点击跳转定位。
  * 数据来自 SSE citations 事件（后端 _build_rag_context 回传的命中元数据）。
- * 纯展示组件：跳转行为由父级 onCiteClick 决定（知识库页切 tab + 高亮定位）。
+ * 纯展示组件：跳转行为由父级 onCiteClick 决定（V7.4.2：跳到知识库对应文档，
+ * 并滚动定位到命中的那个分块）。
  */
 import { BookOpen } from "lucide-react";
 import type { CitationItem } from "../../types";
@@ -11,7 +12,8 @@ export default function Citations({
   onCiteClick,
 }: {
   items: CitationItem[];
-  onCiteClick?: (knowledgeId: string) => void;
+  /** V7.4.2：第二个参数是被命中的分块 id，用于跳过去后滚动高亮到具体那一段 */
+  onCiteClick?: (knowledgeId: string, chunkId?: string) => void;
 }) {
   if (!items?.length) return null;
   return (
@@ -24,7 +26,7 @@ export default function Citations({
             type="button"
             className="cite-chip"
             title={c.snippet || c.doc_title}
-            onClick={() => c.knowledge_id && onCiteClick?.(c.knowledge_id)}
+            onClick={() => c.knowledge_id && onCiteClick?.(c.knowledge_id, c.chunk_id)}
           >
             <BookOpen size={12} />
             <span className="cc-idx">[{i + 1}]</span>

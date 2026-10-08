@@ -88,8 +88,8 @@ export default function ChatPanel({
 }: {
   /** V5.8：AI 会话勾选知识库后渲染引用溯源 chips（不选库不检索、无 citations） */
   showCitations?: boolean;
-  /** 引用 chip 点击回调（跳知识库页定位原文） */
-  onCiteClick?: (knowledgeId: string) => void;
+  /** 引用 chip 点击回调（V7.4.2：跳知识库对应文档并定位到命中分块） */
+  onCiteClick?: (knowledgeId: string, chunkId?: string) => void;
 }) {
   const messages = useChatStore((s) => s.messages);
   const conversationId = useChatStore((s) => s.conversationId);

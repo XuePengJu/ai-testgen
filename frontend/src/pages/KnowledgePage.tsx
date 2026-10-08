@@ -140,11 +140,23 @@ async function collectDropFiles(dt: DataTransfer): Promise<File[]> {
   return out;
 }
 
-export default function KnowledgePage() {
+export default function KnowledgePage({
+  citeTarget = null,
+  onCiteConsumed,
+}: {
+  /** V7.4.2：从 AI 会话点引用 chip 跳入时的目标（文档 id + 被命中的分块 id） */
+  citeTarget?: { docId: string; chunkId?: string } | null;
+  /** 跳转目标处理完后回调，让父级清空（否则切走再回来会重复打开同一篇） */
+  onCiteConsumed?: () => void;
+} = {}) {
   const { role } = useAuth();
   const readOnly = role === "guest"; // V4.2：访客只读（仅共享库，无新建/上传/删除，写操作后端 403 兜底）
   const [bases, setBases] = useState<KB[]>([]);
   const [sel, setSel] = useState<KB | null>(null);
+  /** V7.4.2：待打开的文档，下传给 DocsTab，由它在文档列表就绪后调 openDetail */
+  const [pendingDoc, setPendingDoc] = useState<{ docId: string; chunkId?: string } | null>(null);
+  /** 库列表是否已加载完（引用跳转要等它，否则反查不到 kb） */
+  const [basesLoaded, setBasesLoaded] = useState(false);
   const [tab, setTab] = useState<KbTab>(() => {
     const saved = localStorage.getItem("aitf_kb_tab");
     // V5.8："chat" Tab 已下线；V7.0 起白名单校验，任意非法旧值一律回落文档 Tab
@@ -153,20 +165,50 @@ export default function KnowledgePage() {
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
-    const data = await apiJson<{ items: KB[] }>("/api/knowledge/bases");
-    setBases(data?.items ?? []);
-    setSel((prev) => {
-      const items = data?.items ?? [];
-      if (prev) {
-        const next = items.find((b) => b.id === prev.id);
-        if (next) return next;
-      }
-      const savedId = localStorage.getItem("aitf_kb_sel");
-      const restored = savedId ? items.find((b) => b.id === savedId) : null;
-      return restored ?? (items[0] ?? null);
-    });
+    try {
+      const data = await apiJson<{ items: KB[] }>("/api/knowledge/bases");
+      setBases(data?.items ?? []);
+      setSel((prev) => {
+        const items = data?.items ?? [];
+        if (prev) {
+          const next = items.find((b) => b.id === prev.id);
+          if (next) return next;
+        }
+        const savedId = localStorage.getItem("aitf_kb_sel");
+        const restored = savedId ? items.find((b) => b.id === savedId) : null;
+        return restored ?? (items[0] ?? null);
+      });
+    } finally {
+      setBasesLoaded(true);   // V7.4.2：无论成功失败都放行引用跳转，避免永久等待
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  // V7.4.2 引用跳转：反查文档所属知识库 → 切库 + 切到文档 Tab → 交给 DocsTab 打开。
+  // citations 只带 knowledge_id 不带 kb_id，所以查一次文档详情拿 knowledge_base_id。
+  // 等 basesLoaded 再动手：库列表没到就反查不到 kb，会误报「已不可见」。
+  useEffect(() => {
+    if (!citeTarget?.docId || !basesLoaded) return;
+    let alive = true;
+    void (async () => {
+      const d = await apiJson<{ knowledge_base_id?: string }>(
+        `/api/knowledge/documents/${citeTarget.docId}`);
+      if (!alive) return;
+      const kbId = String(d?.knowledge_base_id ?? "");
+      const kb = kbId ? bases.find((b) => b.id === kbId) : null;
+      if (!kb) {
+        toast("引用的文档已不可见（可能已删除或无权访问）");
+        onCiteConsumed?.();
+        return;
+      }
+      setSel(kb);
+      setTab("docs");
+      setPendingDoc({ docId: citeTarget.docId, chunkId: citeTarget.chunkId });
+      onCiteConsumed?.();
+    })();
+    return () => { alive = false; };
+  }, [citeTarget, basesLoaded, bases, onCiteConsumed]);
+
   useEffect(() => { localStorage.setItem("aitf_kb_tab", tab); }, [tab]);
   // V7.0：记忆 Tab 仅个人记忆库可用；localStorage 恢复/手动切库到普通库时回落文档 Tab
   useEffect(() => {
@@ -243,7 +285,11 @@ export default function KnowledgePage() {
                 {!readOnly && <KbActions kb={sel} onChanged={load} />}
               </div>
             </header>
-            {tab === "docs" && <DocsTab kb={sel} readOnly={readOnly} />}
+            {tab === "docs" && (
+              <DocsTab kb={sel} readOnly={readOnly}
+                openTarget={pendingDoc}
+                onTargetConsumed={() => setPendingDoc(null)} />
+            )}
             {tab === "wiki" && <WikiTab kb={sel} readOnly={readOnly} />}
             {tab === "graph" && <GraphTab kb={sel} />}
             {tab === "search" && <SearchTab kb={sel} />}
@@ -307,9 +353,18 @@ function KbActions({ kb, onChanged }: { kb: KB; onChanged: () => void }) {
 }
 
 /* ---------------- 文档 Tab（M6：库头 + 拖拽上传 + 轻行列表） ---------------- */
-function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
+function DocsTab({ kb, readOnly = false, openTarget = null, onTargetConsumed }: {
+  kb: KB;
+  readOnly?: boolean;
+  /** V7.4.2：引用跳转过来时要自动打开的文档（+ 被命中的分块 id） */
+  openTarget?: { docId: string; chunkId?: string } | null;
+  /** 处理完跳转目标后回调（清空 pending，避免切库回来重复打开） */
+  onTargetConsumed?: () => void;
+}) {
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [detail, setDetail] = useState<{ doc: Doc; chunks: ChunkRow[] } | null>(null);
+  const [detail, setDetail] = useState<{
+    doc: Doc; chunks: ChunkRow[]; highlightChunkId?: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -413,13 +468,35 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
     } finally { setBusy(false); }
   };
 
-  const openDetail = async (doc: Doc) => {
+  const openDetail = async (doc: Doc, highlightChunkId?: string) => {
     const data = await apiJson<Record<string, unknown>>(`/api/knowledge/documents/${doc.id}`);
     if (data) {
       const { chunks: ck, ...info } = data as { chunks?: ChunkRow[] } & Partial<Doc>;
-      setDetail({ doc: { ...doc, ...info } as Doc, chunks: ck ?? [] });
+      setDetail({ doc: { ...doc, ...info } as Doc, chunks: ck ?? [], highlightChunkId });
     }
   };
+
+  // V7.4.2 引用跳转：直接按 id 拉文档详情并打开（不依赖 docs 列表，避开
+  // 「列表还在加载 / 目标不在当前页」的竞态），并带上被命中的分块 id 供滚动高亮。
+  useEffect(() => {
+    if (!openTarget?.docId) return;
+    let alive = true;
+    void (async () => {
+      const data = await apiJson<Record<string, unknown>>(
+        `/api/knowledge/documents/${openTarget.docId}`);
+      if (!alive) return;
+      if (!data || !data.id) {
+        toast("引用的文档已不可见（可能已删除或无权访问）");
+        onTargetConsumed?.();
+        return;
+      }
+      const { chunks: ck, ...info } = data as { chunks?: ChunkRow[] } & Partial<Doc>;
+      setDetail({ doc: info as Doc, chunks: ck ?? [], highlightChunkId: openTarget.chunkId });
+      onTargetConsumed?.();
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTarget]);
   const reindex = async (doc: Doc) => {
     setBusy(true);
     toast(`正在重建「${doc.title}」索引…（分块+向量化，请稍候）`);
@@ -681,7 +758,9 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
         })}
       </div>
 
-      {detail && <ChunkPanel key={detail.doc.id} detail={detail} onClose={() => setDetail(null)} />}
+      {detail && <ChunkPanel key={detail.doc.id} detail={detail}
+        highlightChunkId={detail.highlightChunkId}
+        onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -807,8 +886,10 @@ function DocMetaPanel({ doc }: { doc: Doc }) {
  * 所以调用方**必须**传 key={doc.id} 强制换文档时重挂载，否则会出现
  * 「点了另一篇文档，标题和基本信息变了，但摘要/分块还是上一篇的」。
  * 参见下方两处 <ChunkPanel key={detail.doc.id} .../>。 */
-function ChunkPanel({ detail, onClose }: {
+function ChunkPanel({ detail, highlightChunkId, onClose }: {
   detail: { doc: Doc; chunks: ChunkRow[] };
+  /** V7.4.2：从 AI 引用跳转进来时被命中的分块 id —— 打开后滚动到它并高亮 */
+  highlightChunkId?: string;
   onClose: () => void;
 }) {
   const [chunks, setChunks] = useState<ChunkRow[]>(detail.chunks);
@@ -820,6 +901,17 @@ function ChunkPanel({ detail, onClose }: {
     const saved = Number(localStorage.getItem("aitf_drawer_w"));
     return saved >= 320 && saved <= 1200 ? saved : 460;
   });
+
+  // V7.4.2：引用跳转定位 —— 等抽屉内容渲染完再滚到命中的分块
+  // （抽屉是 flex 滚动容器，直接同步 scrollIntoView 会因布局未完成而滚偏）
+  const hlRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!highlightChunkId) return;
+    const timer = window.setTimeout(() => {
+      hlRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [highlightChunkId]);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -879,7 +971,9 @@ function ChunkPanel({ detail, onClose }: {
           <div className="kb-chunks-inner">
         {chunks.length === 0 && <div className="muted">该文档没有分块</div>}
         {chunks.map((c) => (
-          <div key={c.id} className="kb-chunk">
+          <div key={c.id}
+            ref={c.id === highlightChunkId ? hlRef : undefined}
+            className={"kb-chunk" + (c.id === highlightChunkId ? " kb-chunk-hl" : "")}>
             <div className="kb-chunk-head">
               <span className="kb-chunk-idx">{c.chunk_index + 1}</span>
               {c.context_header && <span className="muted" style={{ fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.context_header}</span>}
