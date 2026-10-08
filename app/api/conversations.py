@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.tasks import _parse_cases, _delete_task_cascade
 from app.core import config
-from app.core.config import OUTPUT_DIR
+from app.core.config import OUTPUT_DIR, AITF_MEMORY_DELETE_CONV_ITEMS
 from app.core.db import get_db
 from app.core.utils import utcnow
 from app.models.chat_file import ChatAttachment
@@ -421,7 +421,27 @@ def _delete_conversation_knowledge(db: Session, conv: Conversation) -> int:
     # 附件登记行随会话删除（uploads/chat 原件保留，属用户上传资产不在此清）
     for a in atts:
         db.delete(a)
+    # V7.0 级联清理：会话级记忆条目 + 关联审计（AITF_MEMORY_DELETE_CONV_ITEMS
+    # 默认开；条目含本会话的隐私内容，会话删了不能留条目孤儿）
+    deleted_items = 0
+    if AITF_MEMORY_DELETE_CONV_ITEMS:
+        from app.models.memory import MemoryAudit, MemoryItem
+        item_rows = db.execute(
+            select(MemoryItem).where(MemoryItem.conversation_id == conv.id)
+        ).scalars().all()
+        item_ids = [i.id for i in item_rows]
+        if item_ids:
+            # V7.2：行删除前先清条目向量（ Chroma where 按 memory_item_id，
+            # 删除失败只告警不阻断行清理）
+            from app.services.knowledge.vectorstore import delete_item_vectors
+            for it in item_rows:
+                delete_item_vectors(it.id)
+            db.execute(delete(MemoryAudit).where(MemoryAudit.item_id.in_(item_ids)))
+            db.execute(delete(MemoryItem).where(MemoryItem.id.in_(item_ids)))
+            deleted_items = len(item_ids)
     db.commit()
+    if deleted_items:
+        logger.info("会话 %s 级联删除记忆条目 %d 条", conv.id, deleted_items)
     return deleted_docs
 
 

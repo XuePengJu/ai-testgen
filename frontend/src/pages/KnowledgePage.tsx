@@ -11,11 +11,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FileText, RefreshCw, Search, Trash2, Upload, Plus,
   History, Undo2, X, Pencil, Check, Sparkles,
-  BookOpen, Network,
+  BookOpen, Network, Brain,
 } from "lucide-react";
 import { api, apiJson, toast } from "../api/client";
 import ReactECharts from "echarts-for-react";
 import KbSelector from "../components/knowledge/KbSelector";
+import MemoryPanel from "../components/knowledge/MemoryPanel";
 import { useAuth } from "../hooks/useAuth";
 import { fmtCnDate, fmtCnTime, parseServerTime } from "../utils/time";
 
@@ -41,6 +42,10 @@ interface ChunkRow {
 interface Hit { id: string; score: number; document: string; metadata: Record<string, unknown>; }
 
 const cleanTitle = (t: string) => (t || "").replace(/^\d+[_\-\s]*/, "").replace(/\.[^.]+$/, "");
+
+/** V7.0 知识库页 Tab 白名单（memory 仅个人记忆库可选，普通库自动回落 docs） */
+const KB_TABS = ["docs", "wiki", "graph", "search", "memory"] as const;
+type KbTab = (typeof KB_TABS)[number];
 
 /**
  * 摘要展示兜底：存量数据里 wiki_summary 可能存的是 {"summary": "..."} 形状的
@@ -140,13 +145,11 @@ export default function KnowledgePage() {
   const readOnly = role === "guest"; // V4.2：访客只读（仅共享库，无新建/上传/删除，写操作后端 403 兜底）
   const [bases, setBases] = useState<KB[]>([]);
   const [sel, setSel] = useState<KB | null>(null);
-  const [tab, setTab] = useState<"docs" | "wiki" | "graph" | "search">(
-    () => {
-      const saved = localStorage.getItem("aitf_kb_tab");
-      // V5.8："chat" Tab 已下线，老记忆值回落到文档 Tab
-      return saved && saved !== "chat" ? (saved as "docs" | "wiki" | "graph" | "search") : "docs";
-    }
-  );
+  const [tab, setTab] = useState<KbTab>(() => {
+    const saved = localStorage.getItem("aitf_kb_tab");
+    // V5.8："chat" Tab 已下线；V7.0 起白名单校验，任意非法旧值一律回落文档 Tab
+    return saved && (KB_TABS as readonly string[]).includes(saved) ? (saved as KbTab) : "docs";
+  });
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
@@ -165,6 +168,10 @@ export default function KnowledgePage() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { localStorage.setItem("aitf_kb_tab", tab); }, [tab]);
+  // V7.0：记忆 Tab 仅个人记忆库可用；localStorage 恢复/手动切库到普通库时回落文档 Tab
+  useEffect(() => {
+    if (tab === "memory" && sel && !sel.is_personal) setTab("docs");
+  }, [tab, sel]);
 
   // Embedding 生效状态（打开页面 toast 一次，不常驻）
   const [embShown, setEmbShown] = useState(false);
@@ -224,6 +231,13 @@ export default function KnowledgePage() {
                 <button className={"ptab " + (tab === "search" ? "on" : "")} onClick={() => setTab("search")}>
                   <Search size={14} /> 检索测试
                 </button>
+                {/* V7.0：记忆条目管理，仅个人记忆库（is_personal）展示 */}
+                {sel.is_personal && (
+                  <button className={"ptab " + (tab === "memory" ? "on" : "")} onClick={() => setTab("memory")}
+                    title="AI 对话沉淀的记忆条目：可见/可改/可删/冲突裁决">
+                    <Brain size={14} /> 记忆
+                  </button>
+                )}
               </nav>
               <div className="kb-top-actions">
                 {!readOnly && <KbActions kb={sel} onChanged={load} />}
@@ -233,6 +247,7 @@ export default function KnowledgePage() {
             {tab === "wiki" && <WikiTab kb={sel} readOnly={readOnly} />}
             {tab === "graph" && <GraphTab kb={sel} />}
             {tab === "search" && <SearchTab kb={sel} />}
+            {tab === "memory" && sel.is_personal && <MemoryPanel kb={sel} />}
           </>
         )}
       </section>
@@ -575,7 +590,7 @@ function DocsTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
         })}
       </div>
 
-      {detail && <ChunkPanel detail={detail} onClose={() => setDetail(null)} />}
+      {detail && <ChunkPanel key={detail.doc.id} detail={detail} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -694,7 +709,13 @@ function DocMetaPanel({ doc }: { doc: Doc }) {
   );
 }
 
-/* ---------------- 分块面板（可审可干预） ---------------- */
+/* ---------------- 分块面板（可审可干预） ----------------
+ * ⚠️ 这个组件（含内部的 DocMetaPanel）把 props 派生成 useState 初值：
+ *    chunks / metaFields / summary / summaryText
+ *   而 useState 的初值只在**首次挂载**时生效，之后 props 变化不会同步。
+ * 所以调用方**必须**传 key={doc.id} 强制换文档时重挂载，否则会出现
+ * 「点了另一篇文档，标题和基本信息变了，但摘要/分块还是上一篇的」。
+ * 参见下方两处 <ChunkPanel key={detail.doc.id} .../>。 */
 function ChunkPanel({ detail, onClose }: {
   detail: { doc: Doc; chunks: ChunkRow[] };
   onClose: () => void;
@@ -996,7 +1017,7 @@ function WikiTab({ kb, readOnly = false }: { kb: KB; readOnly?: boolean }) {
           );
         })}
       </div>
-      {detail && <ChunkPanel detail={detail} onClose={() => setDetail(null)} />}
+      {detail && <ChunkPanel key={detail.doc.id} detail={detail} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -1094,7 +1115,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   };
 
   const goConfig = () => {
-    window.dispatchEvent(new CustomEvent("nav-to", { detail: "settings" }));
+    window.dispatchEvent(new CustomEvent("nav-to", { detail: "models" }));
     onClose();
   };
 

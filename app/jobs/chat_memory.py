@@ -24,8 +24,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import (
     AITF_MEMORY_DIGEST_DAILY,
+    AITF_MEMORY_ITEMS_ENABLED,
     AITF_MEMORY_MAX_CONV_PER_RUN,
     AITF_MEMORY_MAX_USERS_PER_RUN,
+    AITF_MEMORY_MIN_USER_MSGS,
     AITF_MEMORY_SKIP_GUEST,
     AITF_MEMORY_TZ,
 )
@@ -95,16 +97,50 @@ def _build_transcript(msgs: list[Message]) -> str:
 
 
 def _ingest_pending_attachments(db: Session, conv: Conversation) -> dict:
-    """附件兜底入库（P1 的 file_ingest 由并行同事交付，缺失时零值兜底不报错）。"""
+    """附件兜底补跑（P1 的 file_ingest 由并行同事交付，缺失时零值兜底不报错）。
+
+    返回键与 file_ingest.ingest_pending_attachments 完全对齐：
+    {"total", "ingested", "skipped"}（旧 {"total", "done"} 键已废弃，两处统一）。
+    调用契约：ingest_pending_attachments(db, conversation_id: str) 的第二参是
+    conversation_id **字符串**——必须传 conv.id，传 conv ORM 对象会抛 ArgumentError。
+    """
     try:
         from app.services.memory.file_ingest import ingest_pending_attachments
     except ImportError:  # noqa: BLE001  P1 模块尚未合入
-        return {"total": 0, "done": 0}
+        return {"total": 0, "ingested": 0, "skipped": 0}
     try:
-        return ingest_pending_attachments(db, conv) or {"total": 0, "done": 0}
-    except Exception as e:  # noqa: BLE001  附件兜底失败不阻断记忆提炼
-        logger.warning("会话 %s 附件兜底入库失败：%s", conv.id, e)
-        return {"total": 0, "done": 0}
+        return (ingest_pending_attachments(db, conv.id)
+                or {"total": 0, "ingested": 0, "skipped": 0})
+    except Exception as e:  # noqa: BLE001  附件兜底失败不阻断记忆提炼，但必须留痕
+        # 带堆栈摘要记 warning（静默吞异常是本兜底曾整体失效且漏检的根因）
+        logger.warning("会话 %s 附件兜底补跑失败：%s: %s",
+                       conv.id, type(e).__name__, str(e)[:200], exc_info=True)
+        return {"total": 0, "ingested": 0, "skipped": 0}
+
+
+def _sync_memory_items(db: Session, conv: Conversation, msgs: list[Message],
+                       transcript: str) -> dict:
+    """V7.0 条目双写编排：extract_facts → sync_conversation_items。
+
+    只做编排（分层铁律：写入逻辑全在 services/memory/items.py）：
+    - AITF_MEMORY_ITEMS_ENABLED=0 → 直接返回 {}（行为与 V6.0 逐字节一致）
+    - 增量里 user 消息 < MIN_USER_MSGS 或 transcript 为空 → 跳过（过滤寒暄）
+    - extract_facts 已知主题词表防 subject 漂移（三层防线的第一层）
+    返回 sync_conversation_items 的 summary；异常由调用方捕获后整体回滚。
+    """
+    if not AITF_MEMORY_ITEMS_ENABLED:
+        return {}
+    user_msgs = [m for m in msgs if m.role == "user" and (m.content or "").strip()]
+    if len(user_msgs) < AITF_MEMORY_MIN_USER_MSGS or not (transcript or "").strip():
+        return {}
+    # 延迟 import 便于测试 monkeypatch（与 memory_chat 同款路数）
+    from app.services.memory.items import list_known_subjects, sync_conversation_items
+    from app.services.memory.llm import extract_facts
+    known = list_known_subjects(db, conv.user_id)
+    facts = extract_facts(transcript, known_subjects=known)
+    if not facts:
+        return {}
+    return sync_conversation_items(db, conv, facts, msgs)
 
 
 def process_conversation(db: Session, conv: Conversation, manual: bool = False) -> dict:
@@ -160,6 +196,16 @@ def process_conversation(db: Session, conv: Conversation, manual: bool = False) 
     else:
         kb = db.get(KnowledgeBase, kb_id)
     doc_id = upsert_memory_doc(db, kb, conv, md_text)
+
+    # 3.5) V7.0 条目级记忆双写（与文档链路并行；任何异常只回滚条目变更，
+    # 绝不阻断文档链路——文档已 commit，rollback 只清未提交的条目事务）
+    try:
+        items_summary = _sync_memory_items(db, conv, msgs, transcript)
+    except Exception as e:  # noqa: BLE001  条目链路故障必须留痕但不上抛
+        db.rollback()
+        items_summary = {}
+        logger.warning("会话 %s 记忆条目双写失败（文档链路不受影响）：%s: %s",
+                       conv.id, type(e).__name__, str(e)[:200], exc_info=True)
 
     conv.mem_dirty = False
     conv.mem_last_msg_id = _latest_msg_id(db, conv)
@@ -339,6 +385,15 @@ def run_daily(db: Session | None = None) -> dict:
                         db.rollback()
                         summary["errors"].append(f"daily:{u.id}:{str(e)[:120]}")
                         logger.warning("用户 %s 日报生成失败：%s", u.id, e)
+                # V7.1 遗忘：TTL 过期让位 + 宽限物理清理。挂在同一个 JobRun
+                # （不新增 job_id、不新增一把锁）；异常只记 errors，绝不影响主提炼
+                try:
+                    from app.services.memory.forget import run_forgetting
+                    run_forgetting(db, u.id)
+                except Exception as e:  # noqa: BLE001
+                    db.rollback()
+                    summary["errors"].append(f"forget:{u.id}:{str(e)[:120]}")
+                    logger.warning("用户 %s 遗忘任务失败：%s", u.id, e)
             run.status = "success"
         except Exception as e:  # noqa: BLE001  整轮级异常也要落审计
             db.rollback()

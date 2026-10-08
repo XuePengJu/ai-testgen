@@ -92,8 +92,31 @@ def purge_user_knowledge(db: Session, user_id: int) -> dict:
         delete_knowledge_vectors(doc.id)
     for kb in kb_rows:
         delete_kb_vectors(kb.id)
+    # V7.2：记忆条目向量一并清（独立 metadata 空间，按 source=mem_item + user_id）
+    try:
+        from app.services.knowledge.vectorstore import delete_user_item_vectors
+        delete_user_item_vectors(user_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("用户 %s 记忆条目向量清理失败：%s", user_id, e)
 
     n_docs, n_chunks, n_bases = len(doc_rows), len(chunk_rows), len(kb_rows)
+    # V7.0 级联清理：记忆条目 + 条目审计随用户一起清（调用方 users.py /
+    # guest_cleaner.py 自动生效，不留孤儿）。审计含隐私内容（subject/content
+    # 快照），用户删除必须物理清零。
+    n_items = n_audits = 0
+    try:
+        from sqlalchemy import delete as _delete, func as _func
+        from app.models.memory import MemoryAudit, MemoryItem
+        n_items = int(db.execute(
+            select(_func.count()).select_from(MemoryItem)
+            .where(MemoryItem.user_id == user_id)).scalar() or 0)
+        n_audits = int(db.execute(
+            select(_func.count()).select_from(MemoryAudit)
+            .where(MemoryAudit.user_id == user_id)).scalar() or 0)
+        db.execute(_delete(MemoryItem).where(MemoryItem.user_id == user_id))
+        db.execute(_delete(MemoryAudit).where(MemoryAudit.user_id == user_id))
+    except Exception as e:  # noqa: BLE001  条目清理失败只告警，不阻断知识库主清理
+        logger.warning("用户 %s 记忆条目级联清理失败：%s", user_id, e)
     for rev in rev_rows:
         db.delete(rev)
     for chunk in chunk_rows:

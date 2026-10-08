@@ -212,6 +212,22 @@ def _build_attachment_context(loaded: tuple[str, str] | None) -> str:
     return f"【附件《{name}》内容】\n{text}"
 
 
+def _doc_search(db: Session, query: str, kb_ids: list[str], top_k: int,
+                *, is_guest: bool) -> list[dict]:
+    """文档检索分发：混合（BM25+向量+RRF）或回滚到纯向量。
+
+    - AITF_DOC_HYBRID_ENABLED=0 → 原路径 `vectorstore.search`（逐字节回滚口径）
+    - guest 且 AITF_DOC_HYBRID_GUEST=0 → 回滚纯向量（运维可回滚；默认对 guest 启用，
+      与文档检索对 guest 本来就可用对齐）
+    - 其余 → 文档级混合检索（内部始终先调 vectorstore.search 保 spy 契约，异常降级纯向量）
+    """
+    from app.services.knowledge import vectorstore
+    if not config.AITF_DOC_HYBRID_ENABLED or (is_guest and not config.AITF_DOC_HYBRID_GUEST):
+        return vectorstore.search(query, kb_ids, top_k=top_k)   # 原路径，回滚口径
+    from app.services.knowledge.hybrid import hybrid_search_docs
+    return hybrid_search_docs(db, query, kb_ids, top_k=top_k)
+
+
 def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[str, list[dict]]:
     """P4 RAG：按（个人记忆库 ∪ 用户勾选业务库）∩ 可见 联合检索，拼参考上下文。
 
@@ -250,14 +266,27 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
     picked_biz = [k for k in (body.kb_ids or ([] if not body.kb_id else [body.kb_id]))
                   if k in vids]
     top_k = 6 if not body.file_id else 4  # 有附件时少检索几块，给附件正文留空间
-    biz_hits = vectorstore.search(body.message, picked_biz, top_k=top_k) if picked_biz else []
-    mem_hits = (vectorstore.search(body.message, [personal_kb_id],
-                                   top_k=config.AITF_MEMORY_TOPK)
+    import time as _time  # V7.3 埋点计时（本函数出参与 citations 均不变）
+    _rag_t0 = _time.perf_counter()
+    _is_guest = user.role == "guest"
+    biz_hits = (_doc_search(db, body.message, picked_biz, top_k, is_guest=_is_guest)
+                if picked_biz else [])
+    mem_hits = (_doc_search(db, body.message, [personal_kb_id], config.AITF_MEMORY_TOPK,
+                            is_guest=_is_guest)
                 if personal_kb_id else [])
-    # 两路汇总去重：记忆片段优先（排前且占用 chunk_id 去重名额）
+    # V7.2 通道C：条目级混合检索（BM25+RRF+衰减+MMR；mock embedding 下纯 BM25）。
+    # 仅注册用户启用，guest 恒关；失败降级为空，绝不拖垮文档检索链路。
+    item_hits: list[dict] = []
+    if config.AITF_MEMORY_HYBRID_ENABLED and user.role != "guest":
+        try:
+            from app.services.memory.retrieve import hybrid_search
+            item_hits = hybrid_search(db, user, body.message)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("条目混合检索失败（降级跳过）：%s", e)
+    # 三路汇总去重：条目记忆优先（排前且占用 chunk_id 去重名额），其次个人库文档，最后业务库
     seen: set[str] = set()
     hits: list[dict] = []
-    for h in mem_hits + biz_hits:
+    for h in item_hits + mem_hits + biz_hits:
         cid = h.get("id") or ""
         if cid in seen:
             continue
@@ -279,8 +308,12 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             "context_header": header,
             "snippet": (h.get("document") or "")[:120],
             "score": h.get("score"),
-            # P4：该分块是否来自个人记忆库（kb_id 与个人库 id 相等即个人记忆）
-            "personal": bool(personal_kb_id) and meta.get("kb_id") == personal_kb_id,
+            # P4/V7.2/V7.4：条目记忆命中恒视为「来自记忆」（metadata.personal=True），
+            # 不受用户是否已有个人知识库影响；个人库文档仍按 kb_id 匹配判定。
+            "personal": (meta.get("personal") is True) or (
+                bool(personal_kb_id) and meta.get("kb_id") == personal_kb_id),
+            # V7.2：条目记忆命中时携带条目 id（前端跳转记忆面板定位用；文档命中为空串）
+            "memory_item_id": (meta.get("memory_item_id") or ""),
         })
     # 批量补 Wiki/文档条目标题（引用跳转定位用），一次查询避免 N+1
     kids = {c["knowledge_id"] for c in cites if c["knowledge_id"]}
@@ -294,7 +327,20 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             if t:
                 c["doc_title"] = t
     out = "【知识库检索参考（用于回答，未命中业务规则时如实说明）】\n" + "\n\n---\n\n".join(parts)
-    return out[:4000], cites
+    # V7.3 地基：检索埋点（独立 Session + 采样率 + 任何异常静默，绝不影响主链路）
+    try:
+        from app.services.memory.logs import log_retrieval
+        log_retrieval(
+            user_id=user.id,
+            query=body.message,
+            hits_total=len(cites),
+            item_hits=len(item_hits),
+            latency_ms=int((time.perf_counter() - _rag_t0) * 1000),
+            hit_ids=[c["chunk_id"] for c in cites[:10]],
+        )
+    except Exception:  # noqa: BLE001  埋点静默失败
+        pass
+    return out[:config.AITF_RAG_CONTEXT_LIMIT], cites
 
 
 def _build_memory_brief(db: Session, user: User | None) -> str:

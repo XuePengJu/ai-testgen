@@ -122,7 +122,7 @@ export default function App() {
     if (view === "models" && ready && !me) setView("main");
   }, [view, ready, role, me]);
 
-  // V4.0：跨页面跳转事件（如知识库创建后引导去设置页配置向量模型）
+  // V4.0：跨页面跳转事件（如知识库创建后引导去模型配置页配置向量模型）
   // 未知目标（历史残留 e2e/quality 等）经 normalizeView 安全回落主视图
   useEffect(() => {
     const h = (e: Event) => {

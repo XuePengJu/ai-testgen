@@ -40,10 +40,25 @@
 | GET    | `/api/conversations/{id}`       | 会话详情（含全部消息，含思考过程）     |
 | PATCH  | `/api/conversations/{id}`       | 手动重命名会话（仅本人）     |
 | POST   | `/api/conversations/{id}/ai-title` | AI 总结会话内容生成标题并覆盖（走生效模型池） |
-| POST   | `/api/conversations/{id}/memory/digest` | 手动存入记忆库（🧠 按钮）：后台整理「本会话对话记录 + 本会话附件」写入个人知识库；立即返回 202 `{"status":"running"}`；409 = 正在整理中；403 = 访客或记忆开关（`AITF_MEMORY_ENABLED`）关闭 |
-| GET    | `/api/conversations/{id}/memory/state` | 记忆整理状态：`status`（idle/running/done/failed）+ `mem_at`（上次完成时间）/ `mem_doc_id`（会话记忆文档 id）/ `mem_error`（最近失败原因）/ `msg_count`（消息数）/ `attachments`（`{total, done}` 已入库附件数）；running 超 5 分钟自愈回落 idle |
+| POST   | `/api/conversations/{id}/memory/digest` | 手动存入记忆库（🧠 按钮）：后台整理「本会话对话记录 + 本会话附件」写入个人知识库；立即返回 202 `{"status":"running"}`；409 = 正在整理中；403 = 访客、或记忆开关（`AITF_MEMORY_ENABLED`）关闭、或手动整理开关（`AITF_MEMORY_DIGEST_MANUAL`）关闭 |
+| GET    | `/api/conversations/{id}/memory/state` | 记忆整理状态：`status`（idle/running/done/failed）+ `mem_at`（上次完成时间）/ `doc_id`（会话记忆文档 id）/ `mem_error`（最近失败原因）/ `msg_count`（消息数）/ `attachments`（`{total, done}` 已入库附件数）；running 超 5 分钟自愈回落 idle |
 | POST   | `/api/conversations/{id}/messages` | 追加消息（前端断线恢复用）     |
-| DELETE | `/api/conversations/{id}`       | 删除会话（连带任务/消息级联清理）  |
+| DELETE | `/api/conversations/{id}`       | 删除会话（连带任务/消息级联清理；V7.0 起连带清该会话沉淀的记忆条目，`AITF_MEMORY_DELETE_CONV_ITEMS` 可关）  |
+
+## 记忆条目（V7.0~V7.1）
+
+> 条目级记忆：每条记忆是带置信度/TTL/版本链/溯源的结构化事实（区别于文档级记忆）。全部接口硬过滤「仅本人」，admin 不跨用户、访客 403。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/memory/items` | 条目列表：`kind`（fact/preference/rule/todo/profile）/ `status`（active/superseded/conflict/expired/deleted）/ `q`（subject+content 模糊）/ `limit`（默认 200）过滤，按 updated_at 倒序 |
+| GET | `/api/memory/items/{id}` | 条目详情 + 版本链（`prev_chain` 旧版在前 / `next_chain` 新版在前）+ 冲突对照（`conflict_with_item` / `conflicting_items`） |
+| GET | `/api/memory/stats` | 本人记忆健康度聚合：按状态/种类计数、平均置信度、active 版本链数 |
+| PATCH | `/api/memory/items/{id}` | 手动编辑（`subject`/`content` 至少一个）：走版本链取代，新版 `source=user`、置信度取 max(原值, 0.90) 且 ≤0.95；仅 active 可编辑，400=非 active 或全空入参 |
+| DELETE | `/api/memory/items/{id}?hard=` | 删除：缺省软删（`status=deleted`，宽限期 30 天后夜间物理清理）；`hard=true` 立即物理删。两种都写审计（审计行永久保留） |
+| POST | `/api/memory/items/{id}/adopt` | 一键采纳冲突条目：conflict 升级 active、取代被冲突条目并接版本链；400=非 conflict 状态 |
+| POST | `/api/memory/items/{id}/restore` | 恢复 superseded 旧版本：与链上当前 active 按置信度竞争（`+0.2` 用户手动加成），不足返回 200 `{"restored": false, "reason": "..."}`；成功则旧 active 让位 |
+| GET | `/api/memory/items/{id}/audits` | 该条目审计链（append-only，含 before/after 快照、actor、reason；硬删后仍可查） |
 
 ## 对话
 

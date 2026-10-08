@@ -29,8 +29,8 @@ export default function Citations({
             <BookOpen size={12} />
             <span className="cc-idx">[{i + 1}]</span>
             <span className="cc-title">{c.doc_title || "未命名条目"}</span>
-            {/* V6.0：命中个人记忆库的条目挂「🧠 记忆」小标签（样式对齐 chip 内现有角标） */}
-            {c.personal && (
+            {/* V6.0/V7.2：命中个人记忆库或记忆条目（memory_item_id）时挂「🧠 记忆」小标签 */}
+            {(c.personal || c.memory_item_id) && (
               <span
                 style={{
                   fontSize: 11, color: "#7c3aed", background: "#f5f3ff",

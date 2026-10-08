@@ -26,7 +26,9 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 # pytest --basetemp 落到工作区内的临时目录（沙箱删除保护要求，不进版本控制）
-.pytest_tmp/
+# 用通配匹配带后缀的并行目录（.pytest_tmp_t01 / .pytest_tmp_qa 等），
+# 否则多路并行跑测试时每个 basetemp 目录都会以未跟踪状态污染 git status
+.pytest_tmp*/
 .tmp-pytest/
 .venv/
 venv/

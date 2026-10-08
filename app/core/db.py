@@ -81,6 +81,7 @@ def init_db() -> None:
     import app.models.request_stat  # noqa: F401  # V5.12：HTTP 请求量统计
     import app.models.chat_file  # noqa: F401  # P0：聊天附件表
     import app.models.job  # noqa: F401  # P0：后台任务运行表
+    import app.models.memory  # noqa: F401  # V7.0：条目级记忆（memory_items / memory_audits）
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
 
@@ -276,6 +277,56 @@ def _ensure_columns() -> None:
                 conn.execute(text(
                     "CREATE UNIQUE INDEX uq_chat_attachments_file_id ON chat_attachments (file_id)"))
                 conn.commit()
+
+    # ============ V7.0 条目级记忆：兜底建表 / 幂等索引 ============
+    # create_all 已随 init_db 的模型导入建齐；此处兜底（老库因故缺表时按
+    # metadata 单独补建）。索引先 get_indexes 查名再建（MySQL 无 IF NOT EXISTS）。
+    if not insp.has_table("memory_items"):
+        Base.metadata.tables["memory_items"].create(bind=engine)
+    if not insp.has_table("memory_audits"):
+        Base.metadata.tables["memory_audits"].create(bind=engine)
+    if insp.has_table("memory_items"):
+        mi_idx = {i["name"] for i in sa_inspect(engine).get_indexes("memory_items")}
+        # 名称 → DDL（与 app/models/memory.py __table_args__ 一一对应）
+        mi_need = {
+            "uq_memory_items_active":
+                "CREATE UNIQUE INDEX uq_memory_items_active ON memory_items (user_id, dedupe_key)",
+            "idx_memory_items_user_status":
+                "CREATE INDEX idx_memory_items_user_status ON memory_items (user_id, status)",
+            "idx_memory_items_user_kind":
+                "CREATE INDEX idx_memory_items_user_kind ON memory_items (user_id, kind)",
+            "idx_memory_items_status_expires":
+                "CREATE INDEX idx_memory_items_status_expires ON memory_items (status, expires_at)",
+            "idx_memory_items_conv":
+                "CREATE INDEX idx_memory_items_conv ON memory_items (conversation_id)",
+        }
+        for _name, _ddl in mi_need.items():
+            if _name not in mi_idx:
+                with engine.connect() as conn:
+                    conn.execute(text(_ddl))
+                    conn.commit()
+                    logger.info("已补建索引 %s（老库幂等迁移）", _name)
+    if insp.has_table("memory_audits"):
+        ma_idx = {i["name"] for i in sa_inspect(engine).get_indexes("memory_audits")}
+        ma_need = {
+            "idx_memory_audits_item":
+                "CREATE INDEX idx_memory_audits_item ON memory_audits (item_id)",
+            "idx_memory_audits_user":
+                "CREATE INDEX idx_memory_audits_user ON memory_audits (user_id)",
+        }
+        for _name, _ddl in ma_need.items():
+            if _name not in ma_idx:
+                with engine.connect() as conn:
+                    conn.execute(text(_ddl))
+                    conn.commit()
+                    logger.info("已补建索引 %s（老库幂等迁移）", _name)
+
+    # V7.3 地基：检索埋点 / 评估运行两表兜底（create_all 已随模型导入建齐，
+    # 此处兜老库缺表；索引走模型 index/Index，无需手工补建）
+    if not insp.has_table("memory_retrieval_logs"):
+        Base.metadata.tables["memory_retrieval_logs"].create(bind=engine)
+    if not insp.has_table("memory_eval_runs"):
+        Base.metadata.tables["memory_eval_runs"].create(bind=engine)
 
 
 def get_db():

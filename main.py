@@ -28,8 +28,8 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
-from app.api import auth, categories, chat, conversations, files, guest, knowledge, llm_config, llm_pool, prompts, stats, tasks, users
-from app.core.config import STATIC_DIR, jwt_secret_is_placeholder, ENV
+from app.api import auth, categories, chat, conversations, files, guest, knowledge, llm_config, llm_pool, memory, prompts, stats, tasks, users
+from app.core.config import STATIC_DIR, jwt_secret_is_placeholder, ENV, AITF_MEMORY_VEC_BACKFILL_ON_BOOT
 from app.core.db import init_db, engine
 from app.core.logging_config import setup_logging
 
@@ -55,6 +55,14 @@ async def lifespan(app: FastAPI):
             _backfill_db.close()
     except Exception as e:  # noqa: BLE001
         logger.warning("个人记忆库回填失败（不影响启动）：%s", e)
+
+    # V7.2：存量记忆条目向量回填开关（默认关）。刻意**不在启动路径做批量
+    # 回填**（懒加载脚本逻辑不进请求进程，避免启动阻塞）——置 1 时给出明确
+    # 提示，实际回填走独立脚本：python scripts/backfill_memory_vectors.py
+    if AITF_MEMORY_VEC_BACKFILL_ON_BOOT:
+        logger.warning(
+            "AITF_MEMORY_VEC_BACKFILL_ON_BOOT=1：本版本不在启动时回填，"
+            "请执行 python scripts/backfill_memory_vectors.py（幂等，100/批）")
 
     # JWT_SECRET 启动检测：默认占位值 → 演示 WARNING / 生产拒启
     if jwt_secret_is_placeholder():
@@ -140,6 +148,7 @@ app.include_router(conversations.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(prompts.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
+app.include_router(memory.router, prefix="/api")
 
 
 @app.get("/health")

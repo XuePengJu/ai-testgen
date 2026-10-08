@@ -1,16 +1,14 @@
 """admin 用户管理与治理接口。"""
-import shutil
 from datetime import datetime
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.deps import require_admin
-from app.core.config import UPLOAD_DIR, OUTPUT_DIR
 from app.core.db import get_db
-from app.models.task import Task, StepLog
+from app.models.task import Task
 from app.models.user import User
 from app.jobs.guest_cleaner import (
     SHARED_GUEST_USERNAME,
@@ -37,15 +35,23 @@ class UserRow(BaseModel):
 
 @router.get("/users", response_model=list[UserRow])
 def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    rows = []
-    for u in db.execute(select(User).order_by(User.id)).scalars().all():
-        n = db.execute(
-            select(func.count()).select_from(Task).where(Task.user_id == u.id)
-        ).scalar_one()
-        rows.append(UserRow(id=u.id, username=u.username, email=u.email, role=u.role,
-                            is_active=u.is_active, expires_at=u.expires_at,
-                            tasks=n, created_at=u.created_at))
-    return rows
+    """用户列表（含每人任务数）。
+
+    ⚠️ 任务数必须用**一次 GROUP BY 聚合**取回，不要按用户循环 count。
+    这里曾经是 N+1：`for u in 全部用户: db.execute(count(...))`，用户数一多就退化
+    （2026-10-08 实测：124 个用户 × 远程 MySQL 单次往返 ~180ms → 单请求 22.7 秒）。
+    现在固定 2 条 SQL，与用户数无关。
+    """
+    users = db.execute(select(User).order_by(User.id)).scalars().all()
+    task_counts = dict(db.execute(
+        select(Task.user_id, func.count()).group_by(Task.user_id)
+    ).all())
+    return [
+        UserRow(id=u.id, username=u.username, email=u.email, role=u.role,
+                is_active=u.is_active, expires_at=u.expires_at,
+                tasks=int(task_counts.get(u.id, 0)), created_at=u.created_at)
+        for u in users
+    ]
 
 
 @router.patch("/users/{user_id}")
@@ -82,25 +88,21 @@ def delete_user(user_id: int, admin: User = Depends(require_admin),
     if u.username == SHARED_GUEST_USERNAME:
         raise HTTPException(status_code=400, detail="共享访客账号不可删除（如需清空请点「清空共享访客数据」）")
 
-    # 级联：step_logs → tasks → 文件目录 → 用户
-    task_rows = db.execute(select(Task.id).where(Task.user_id == u.id)).all()
-    task_ids = [r[0] for r in task_rows]
-    if task_ids:
-        db.execute(delete(StepLog).where(StepLog.task_id.in_(task_ids)))
-        db.execute(delete(Task).where(Task.user_id == u.id))
-    # P0：级联清该用户知识库行数据与 Chroma 向量（不清会留孤儿；失败只记日志不阻断删用户）
-    try:
-        from app.services.memory.store import purge_user_knowledge
-        purge_user_knowledge(db, u.id)
-    except Exception as e:  # noqa: BLE001
-        logging.getLogger("api.users").warning(
-            "purge knowledge for user %s failed: %s", u.id, e)
-    if u.data_dir:
-        for base in (UPLOAD_DIR, OUTPUT_DIR):
-            shutil.rmtree(base / u.data_dir, ignore_errors=True)
+    # 级联：会话/消息 → 任务/步骤日志 → 附件与模型配置 → 知识库+记忆(+向量) → 磁盘文件。
+    # V7.4：统一走 services/user_purge.purge_user_data（此前这里漏删 conversations /
+    # messages / categories / chat_attachments / 模型池 / 提示词覆盖 / 检索埋点，
+    # 而 conversations.user_id 无外键约束 → 删用户会留下永久孤儿会话）。
+    from app.services.user_purge import purge_user_data
+
+    counts = purge_user_data(db, u)
     db.delete(u)
     db.commit()
-    return {"ok": True, "deleted_user_id": user_id, "deleted_tasks": len(task_ids)}
+    return {
+        "ok": True,
+        "deleted_user_id": user_id,
+        "deleted_tasks": counts.get("tasks", 0),
+        "purged": counts,
+    }
 
 
 @router.post("/admin/guest/shared/reset")

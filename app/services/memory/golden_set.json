@@ -1,0 +1,1067 @@
+{
+  "version": "V7.4",
+  "desc": "记忆黄金测试集：5 场景 × 6 用例 = 30 条（preference_change / conflict / expiry / isolation / temporal_decay）。setup 按顺序经 sync_conversation_items 真实冲突裁决链路注入（非直接建行），检索走 retrieve.hybrid_search，全部数据驱动。temporal_decay 场景用 backdate_days 回拨 updated_at 覆盖老条目时间衰减路径。",
+  "fact_fields": {
+    "kind": "fact|preference|rule|todo|profile",
+    "subject": "语义槽位名",
+    "content": "条目正文",
+    "confidence": "0-1",
+    "prov": "assert|explicit|infer"
+  },
+  "expect_fields": {
+    "top1_contains": "top1 召回正文必须包含（大小写不敏感）；缺省不校验",
+    "top1_absent": "true = 期望零召回（越权隔离场景）",
+    "forbidden_contains": "任何召回正文都不得包含的词",
+    "state": {
+      "active_content_contains": "该 subject 当前 active 正文须包含",
+      "active_subject": "校验的 subject（缺省取 setup[0].subject）",
+      "min_superseded": 0,
+      "min_conflict": 0,
+      "min_expired": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "pref-01",
+      "scenario": "preference_change",
+      "desc": "用户改口：回复语言从英文改为中文，新版生效旧版退场",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "回复语言偏好",
+          "content": "用户偏好使用英文进行交流",
+          "confidence": 0.9,
+          "prov": "infer"
+        },
+        {
+          "kind": "preference",
+          "subject": "回复语言偏好",
+          "content": "用户改口偏好使用中文进行交流",
+          "confidence": 0.92,
+          "prov": "explicit"
+        }
+      ],
+      "query": "用户偏好什么语言交流",
+      "expect": {
+        "top1_contains": "中文",
+        "forbidden_contains": [
+          "英文"
+        ],
+        "state": {
+          "active_content_contains": "中文",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "pref-02",
+      "scenario": "preference_change",
+      "desc": "通勤方式从地铁改为开车",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "通勤方式",
+          "content": "用户通勤偏好乘坐地铁",
+          "confidence": 0.85,
+          "prov": "infer"
+        },
+        {
+          "kind": "preference",
+          "subject": "通勤方式",
+          "content": "用户通勤改为自驾开车",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "用户怎么上下班通勤",
+      "expect": {
+        "top1_contains": "开车",
+        "forbidden_contains": [
+          "地铁"
+        ],
+        "state": {
+          "active_content_contains": "自驾",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "pref-03",
+      "scenario": "preference_change",
+      "desc": "代码缩进风格从 tab 改为空格",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "代码缩进风格",
+          "content": "用户代码使用 tab 缩进",
+          "confidence": 0.8,
+          "prov": "infer"
+        },
+        {
+          "kind": "preference",
+          "subject": "代码缩进风格",
+          "content": "用户明确要求代码使用空格缩进",
+          "confidence": 0.92,
+          "prov": "explicit"
+        }
+      ],
+      "query": "代码缩进用什么风格",
+      "expect": {
+        "top1_contains": "空格",
+        "forbidden_contains": [
+          "tab 缩进"
+        ],
+        "state": {
+          "active_content_contains": "空格",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "pref-04",
+      "scenario": "preference_change",
+      "desc": "例会时间从周一改到周三",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "例会时间",
+          "content": "用户例会安排在周一上午",
+          "confidence": 0.85,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "例会时间",
+          "content": "用户例会改到周三下午",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "例会定在什么时候",
+      "expect": {
+        "top1_contains": "周三",
+        "forbidden_contains": [
+          "周一"
+        ],
+        "state": {
+          "active_content_contains": "周三",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "pref-05",
+      "scenario": "preference_change",
+      "desc": "文档交付格式从 word 改为 markdown",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "文档交付格式",
+          "content": "用户要求交付 word 文档",
+          "confidence": 0.82,
+          "prov": "infer"
+        },
+        {
+          "kind": "preference",
+          "subject": "文档交付格式",
+          "content": "用户改要 markdown 格式交付",
+          "confidence": 0.9,
+          "prov": "explicit"
+        }
+      ],
+      "query": "交付文档用什么格式",
+      "expect": {
+        "top1_contains": "markdown",
+        "forbidden_contains": [
+          "word"
+        ],
+        "state": {
+          "active_content_contains": "markdown",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "pref-06",
+      "scenario": "preference_change",
+      "desc": "汇报频率从周报改为日报",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "汇报频率",
+          "content": "用户按周提交周报",
+          "confidence": 0.85,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "汇报频率",
+          "content": "用户改为每天提交日报",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "汇报频率是怎样的",
+      "expect": {
+        "top1_contains": "日报",
+        "forbidden_contains": [
+          "周报"
+        ],
+        "state": {
+          "active_content_contains": "日报",
+          "min_superseded": 1
+        }
+      }
+    },
+    {
+      "id": "cft-01",
+      "scenario": "conflict",
+      "desc": "高置信事实保持 active，低置信新说法挂起不生效",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "上线时间",
+          "content": "系统上线时间定在周五",
+          "confidence": 0.92,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "上线时间",
+          "content": "上线时间可能提前到周四",
+          "confidence": 0.55,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "系统什么时候上线",
+      "expect": {
+        "top1_contains": "周五",
+        "forbidden_contains": [
+          "周四"
+        ],
+        "state": {
+          "active_content_contains": "周五",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "cft-02",
+      "scenario": "conflict",
+      "desc": "库存上限以高置信的 500 为准",
+      "setup": [
+        {
+          "kind": "rule",
+          "subject": "库存上限",
+          "content": "单笔订单库存上限 500 件",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "库存上限",
+          "content": "听说库存上限可能是 800 件",
+          "confidence": 0.5,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "库存上限是多少件",
+      "expect": {
+        "top1_contains": "500",
+        "forbidden_contains": [
+          "800"
+        ],
+        "state": {
+          "active_content_contains": "500",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "cft-03",
+      "scenario": "conflict",
+      "desc": "接口超时阈值以确认过的 30s 为准",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "接口超时阈值",
+          "content": "网关接口超时阈值 30 秒",
+          "confidence": 0.88,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "接口超时阈值",
+          "content": "超时阈值也许改成了 60 秒",
+          "confidence": 0.6,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "接口超时是多少秒",
+      "expect": {
+        "top1_contains": "30",
+        "forbidden_contains": [
+          "60 秒"
+        ],
+        "state": {
+          "active_content_contains": "30",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "cft-04",
+      "scenario": "conflict",
+      "desc": "审批流负责人以确认的张三为准",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "退款审批人",
+          "content": "退款审批负责人是张三",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "退款审批人",
+          "content": "审批人可能换成了李四",
+          "confidence": 0.55,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "退款找谁审批",
+      "expect": {
+        "top1_contains": "张三",
+        "forbidden_contains": [
+          "李四"
+        ],
+        "state": {
+          "active_content_contains": "张三",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "cft-05",
+      "scenario": "conflict",
+      "desc": "演示环境以确认的预发为准，生产说法挂起",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "演示环境",
+          "content": "演示环境使用预发布环境",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "演示环境",
+          "content": "演示可能直接用生产环境",
+          "confidence": 0.58,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "演示部署在哪个环境",
+      "expect": {
+        "top1_contains": "预发布",
+        "forbidden_contains": [
+          "生产环境"
+        ],
+        "state": {
+          "active_content_contains": "预发布",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "cft-06",
+      "scenario": "conflict",
+      "desc": "数据保留期以确认的 90 天为准",
+      "setup": [
+        {
+          "kind": "rule",
+          "subject": "日志保留期",
+          "content": "访问日志保留 90 天",
+          "confidence": 0.92,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "日志保留期",
+          "content": "日志可能只保留 30 天",
+          "confidence": 0.52,
+          "prov": "infer"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目发布负责人",
+          "content": "项目发布负责人是王五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "rule",
+          "subject": "代码评审要求",
+          "content": "合并请求至少需要一人批准",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "每周站会时间",
+          "content": "每周站会定在上午十点",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "preference",
+          "subject": "通知渠道偏好",
+          "content": "用户偏好通过邮件接收通知",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "query": "日志保留多久",
+      "expect": {
+        "top1_contains": "90",
+        "forbidden_contains": [
+          "30 天"
+        ],
+        "state": {
+          "active_content_contains": "90",
+          "min_conflict": 1
+        }
+      }
+    },
+    {
+      "id": "exp-01",
+      "scenario": "expiry",
+      "desc": "过期信息不再召回：发布冻结已解除",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "发布冻结",
+          "content": "发布冻结持续到周五",
+          "confidence": 0.9,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "发布冻结",
+          "content": "发布冻结已解除，可正常发版",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "现在能发布吗",
+      "expect": {
+        "top1_contains": "解除",
+        "forbidden_contains": [
+          "冻结持续"
+        ],
+        "state": {
+          "active_content_contains": "解除",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "exp-02",
+      "scenario": "expiry",
+      "desc": "值班人过期轮换：旧的王五不再召回",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "本周值班人",
+          "content": "本周值班的是王五",
+          "confidence": 0.88,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "本周值班人",
+          "content": "值班轮换为赵六",
+          "confidence": 0.88,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "这周谁值班",
+      "expect": {
+        "top1_contains": "赵六",
+        "forbidden_contains": [
+          "王五"
+        ],
+        "state": {
+          "active_content_contains": "赵六",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "exp-03",
+      "scenario": "expiry",
+      "desc": "临时开关过期：灰度开关已开启",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "灰度开关状态",
+          "content": "灰度开关处于关闭状态",
+          "confidence": 0.85,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "灰度开关状态",
+          "content": "灰度开关已开启",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "灰度开关开了吗",
+      "expect": {
+        "top1_contains": "开启",
+        "forbidden_contains": [
+          "关闭"
+        ],
+        "state": {
+          "active_content_contains": "开启",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "exp-04",
+      "scenario": "expiry",
+      "desc": "演示地址过期换新",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "演示环境地址",
+          "content": "演示环境地址是 demo-old.example.com",
+          "confidence": 0.86,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "演示环境地址",
+          "content": "演示环境迁移到 demo-new.example.com",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "演示环境地址是什么",
+      "expect": {
+        "top1_contains": "demo-new",
+        "forbidden_contains": [
+          "demo-old"
+        ],
+        "state": {
+          "active_content_contains": "demo-new",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "exp-05",
+      "scenario": "expiry",
+      "desc": "版本信息过期：当前版本 v1.3",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "当前迭代版本",
+          "content": "当前线上版本是 v1.2",
+          "confidence": 0.88,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "当前迭代版本",
+          "content": "线上已升级到 v1.3",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "线上现在是什么版本",
+      "expect": {
+        "top1_contains": "v1.3",
+        "forbidden_contains": [
+          "v1.2"
+        ],
+        "state": {
+          "active_content_contains": "v1.3",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "exp-06",
+      "scenario": "expiry",
+      "desc": "联系人过期：旧手机号不再召回",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "项目对接人电话",
+          "content": "对接人电话是 13800000001",
+          "confidence": 0.87,
+          "prov": "assert"
+        },
+        {
+          "kind": "fact",
+          "subject": "项目对接人电话",
+          "content": "对接人换号了新电话 13900000002",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "expire_index": 0,
+      "query": "对接人电话多少",
+      "expect": {
+        "top1_contains": "13900000002",
+        "forbidden_contains": [
+          "13800000001"
+        ],
+        "state": {
+          "active_content_contains": "13900000002",
+          "min_expired": 1
+        }
+      }
+    },
+    {
+      "id": "iso-01",
+      "scenario": "isolation",
+      "desc": "B 的库存规则 A 检索不到（零召回）",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "b": [
+          {
+            "kind": "rule",
+            "subject": "B的库存规则",
+            "content": "B用户库存上限 777 件",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "a",
+      "query": "库存上限是多少",
+      "expect": {
+        "top1_absent": true
+      }
+    },
+    {
+      "id": "iso-02",
+      "scenario": "isolation",
+      "desc": "B 的薪资信息 A 检索不到",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "b": [
+          {
+            "kind": "fact",
+            "subject": "B的薪资信息",
+            "content": "B用户月薪 99999 元",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "a",
+      "query": "月薪多少钱",
+      "expect": {
+        "top1_absent": true
+      }
+    },
+    {
+      "id": "iso-03",
+      "scenario": "isolation",
+      "desc": "B 的客户名单 A 检索不到",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "b": [
+          {
+            "kind": "fact",
+            "subject": "B的重点客户",
+            "content": "B用户重点客户是某某集团",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "a",
+      "query": "重点客户有哪些",
+      "expect": {
+        "top1_absent": true
+      }
+    },
+    {
+      "id": "iso-04",
+      "scenario": "isolation",
+      "desc": "同主题（部署窗口）两用户互不串：A 只召回自己的内容",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "a": [
+          {
+            "kind": "fact",
+            "subject": "部署窗口",
+            "content": "A用户的部署窗口是周二凌晨",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ],
+        "b": [
+          {
+            "kind": "fact",
+            "subject": "部署窗口",
+            "content": "B用户的部署窗口是周日晚上",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "a",
+      "query": "部署窗口是什么时候",
+      "expect": {
+        "top1_contains": "A用户",
+        "forbidden_contains": [
+          "B用户"
+        ],
+        "state": {
+          "active_subject": "部署窗口",
+          "active_content_contains": "周二"
+        }
+      }
+    },
+    {
+      "id": "iso-05",
+      "scenario": "isolation",
+      "desc": "B 的服务器信息 A 检索不到",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "b": [
+          {
+            "kind": "fact",
+            "subject": "B的服务器",
+            "content": "B用户服务器 IP 是 10.9.9.9",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "a",
+      "query": "服务器 IP 是多少",
+      "expect": {
+        "top1_absent": true
+      }
+    },
+    {
+      "id": "iso-06",
+      "scenario": "isolation",
+      "desc": "反向隔离：B 查询也拿不到 A 的备注偏好",
+      "users": [
+        "a",
+        "b"
+      ],
+      "seed": {
+        "a": [
+          {
+            "kind": "preference",
+            "subject": "A的备注偏好",
+            "content": "A用户偏好备注里带emoji",
+            "confidence": 0.9,
+            "prov": "assert"
+          }
+        ]
+      },
+      "query_user": "b",
+      "query": "备注要带什么",
+      "expect": {
+        "top1_absent": true
+      }
+    },
+    {
+      "id": "td-01",
+      "scenario": "temporal_decay",
+      "desc": "老偏好（400 天）仍可召回：V7.4 相对阈值修复老条目误杀",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "常用数据库",
+          "content": "用户偏好使用 PostgreSQL 数据库",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "常用数据库": 400
+      },
+      "query": "用户偏好用什么数据库",
+      "expect": {
+        "top1_contains": "PostgreSQL"
+      }
+    },
+    {
+      "id": "td-02",
+      "scenario": "temporal_decay",
+      "desc": "老偏好（730 天）仍可召回：半衰期两轮后仍在阈值内",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "界面主题",
+          "content": "用户偏好深色主题界面",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "界面主题": 730
+      },
+      "query": "用户喜欢什么主题的界面",
+      "expect": {
+        "top1_contains": "深色"
+      }
+    },
+    {
+      "id": "td-03",
+      "scenario": "temporal_decay",
+      "desc": "三年老偏好（1095 天）仍可召回：核心修复证据",
+      "setup": [
+        {
+          "kind": "preference",
+          "subject": "会议纪要格式",
+          "content": "用户偏好会议纪要导出为 markdown 格式",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "会议纪要格式": 1095
+      },
+      "query": "会议纪要导出成什么格式",
+      "expect": {
+        "top1_contains": "markdown"
+      }
+    },
+    {
+      "id": "td-04",
+      "scenario": "temporal_decay",
+      "desc": "老事实（400 天）仍可召回：fact 半衰期更短但相对阈值兜住",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "生产数据库地址",
+          "content": "生产数据库地址是 db.prod.example.com",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "生产数据库地址": 400
+      },
+      "query": "生产数据库地址在哪里",
+      "expect": {
+        "top1_contains": "db.prod"
+      }
+    },
+    {
+      "id": "td-05",
+      "scenario": "temporal_decay",
+      "desc": "老事实（730 天）仍可召回：fact 衰减到 6% 仍不被误杀",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "网关超时阈值",
+          "content": "网关接口超时阈值是 45 秒",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "网关超时阈值": 730
+      },
+      "query": "网关接口超时阈值多少秒",
+      "expect": {
+        "top1_contains": "45"
+      }
+    },
+    {
+      "id": "td-06",
+      "scenario": "temporal_decay",
+      "desc": "三年老事实（1095 天）仍可召回：fact 衰减到 1.5% 仍不被误杀",
+      "setup": [
+        {
+          "kind": "fact",
+          "subject": "退款审批负责人",
+          "content": "退款审批负责人是赵六",
+          "confidence": 0.9,
+          "prov": "assert"
+        }
+      ],
+      "backdate_days": {
+        "退款审批负责人": 1095
+      },
+      "query": "退款审批该找谁负责",
+      "expect": {
+        "top1_contains": "赵六"
+      }
+    }
+  ]
+}

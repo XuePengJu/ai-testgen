@@ -7,14 +7,10 @@
 - reset_shared_guest_data：管理员触发，清空共享 guest 的任务与文件，但保留账号本身。
 """
 import logging
-import shutil
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import UPLOAD_DIR, OUTPUT_DIR
-from app.models.category import Category
-from app.models.task import Task, StepLog
 from app.models.user import User
 
 logger = logging.getLogger("guest")
@@ -83,30 +79,17 @@ def reset_shared_guest_data(db: Session) -> dict:
 
 
 def _delete_user_data(db: Session, guest: User) -> dict:
-    """级联删 tasks / step_logs / 示例分类 / 知识库 + 删文件目录，保留用户记录。"""
-    deleted_tasks = db.execute(
-        select(func.count()).select_from(Task).where(Task.user_id == guest.id)
-    ).scalar_one()
-    db.execute(delete(Category).where(Category.user_id == guest.id))
-    task_rows = db.execute(select(Task.id).where(Task.user_id == guest.id)).all()
-    task_ids = [r[0] for r in task_rows]
-    if task_ids:
-        db.execute(delete(StepLog).where(StepLog.task_id.in_(task_ids)))
-        db.execute(delete(Task).where(Task.user_id == guest.id))
-    # P0：级联清知识库行数据与向量（不清会留孤儿；失败只记日志不阻断）
-    try:
-        from app.services.memory.store import purge_user_knowledge
-        purge_user_knowledge(db, guest.id)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("purge knowledge for guest %s failed: %s", guest.id, e)
-    deleted_files = 0
-    if guest.data_dir:
-        for base in (UPLOAD_DIR, OUTPUT_DIR):
-            d = base / guest.data_dir
-            if d.exists() and d.name == guest.data_dir:  # 防路径逃逸
-                deleted_files += sum(1 for _ in d.rglob("*") if _.is_file())
-                shutil.rmtree(d, ignore_errors=True)
-    db.commit()
-    logger.info("cleared data for guest %s (%s tasks, %s files)",
-                guest.username, deleted_tasks, deleted_files)
-    return {"deleted_tasks": deleted_tasks, "deleted_files": deleted_files}
+    """级联清空该用户的全部从属数据，保留用户记录。
+
+    V7.4：改为委托 ``services/user_purge.purge_user_data``（唯一实现）。此前本地这份
+    实现漏了 conversations / messages / chat_attachments / 模型池配置 / 提示词覆盖 /
+    检索埋点等表，导致「清空访客数据」清不干净（会话会一直堆着）。
+    返回键名保持不变，兼容既有调用方与测试。
+    """
+    from app.services.user_purge import purge_user_data
+
+    counts = purge_user_data(db, guest)
+    return {
+        "deleted_tasks": counts.get("tasks", 0),
+        "deleted_files": counts.get("files", 0),
+    }

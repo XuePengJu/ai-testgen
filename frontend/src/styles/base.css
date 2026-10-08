@@ -2277,3 +2277,55 @@ button.cl-select:hover { background: #f5f7fa; }
 .wiki-fix-btn { border-radius: 16px; }
 .spin { animation: kb-spin 1s linear infinite; }
 @keyframes kb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ---- V7.0-V7.1 记忆条目面板（MemoryPanel.tsx，复用 .kb-* 视觉语言） ---- */
+.mem-toolbar { gap: 8px; }
+.mem-search-wrap { position: relative; display: inline-flex; align-items: center; }
+.mem-search-ic { position: absolute; left: 8px; color: var(--itf-ink400, #94a3b8); pointer-events: none; }
+.mem-stats { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; font-size: 12px; color: var(--itf-ink500, #64748b); white-space: nowrap; }
+.mem-stats b { font-weight: 700; color: var(--itf-ink900, #0f172a); }
+.mem-stat-warn { color: var(--danger-600, #dc2626); }
+.mem-stat-warn b { color: var(--danger-600, #dc2626); }
+.mem-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.mem-item {
+  border: 1px solid var(--itf-line200, #e2e8f0); border-radius: 10px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: #fff;
+}
+/* 冲突条目红边高亮 */
+.mem-item.mem-conflict { border-color: var(--danger-500, #ef4444); background: var(--danger-50, #fef2f2); }
+.mem-item-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.mem-kind {
+  flex: none; font-size: 10.5px; font-weight: 600; line-height: 1.6;
+  border-radius: 8px; padding: 1px 7px; white-space: nowrap;
+}
+.mem-subject { font-size: 13.5px; font-weight: 600; color: var(--itf-ink900, #0f172a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* 置信度条：细进度条 + 数值 */
+.mem-conf { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+.mem-conf-bar {
+  width: 44px; height: 5px; border-radius: 3px; background: var(--itf-line100, #f1f5f9);
+  overflow: hidden; display: inline-block;
+}
+.mem-conf-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--itf-p500, #6366f1); }
+.mem-conf-num { font-size: 11px; color: var(--itf-ink500, #64748b); }
+.mem-imp { flex: none; font-size: 11px; color: var(--itf-ink400, #94a3b8); white-space: nowrap; }
+/* 状态徽标（active 绿 / superseded 灰 / conflict 红 / expired 黄 / deleted 深灰） */
+.mem-badge { flex: none; font-size: 10.5px; font-weight: 500; line-height: 1.6; border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+.mem-badge-active { background: var(--success-50, #f0fdf4); color: var(--success, #16a34a); }
+.mem-badge-superseded { background: var(--itf-line100, #f1f5f9); color: var(--itf-ink500, #64748b); }
+.mem-badge-conflict { background: var(--danger-50, #fef2f2); color: var(--danger-600, #dc2626); font-weight: 600; }
+.mem-badge-expired { background: #fffbeb; color: #d97706; }
+.mem-badge-deleted { background: var(--itf-line100, #f1f5f9); color: var(--itf-ink400, #94a3b8); text-decoration: line-through; }
+.mem-ver { flex: none; font-size: 11px; }
+.mem-content { font-size: 12.5px; color: var(--itf-ink700, #334155); line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
+/* 溯源行：来源 · 会话 · 消息 · evidence 片段 · 命中次数 */
+.mem-prov { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--itf-ink400, #94a3b8); }
+.mem-prov > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.mem-ops-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mem-ops-row .muted { flex: none; }
+.mem-adopt-btn { background: var(--danger-50, #fef2f2); color: var(--danger-600, #dc2626); border-color: var(--danger-500, #ef4444); }
+.mem-adopt-btn:hover { background: #fde3e3; }
+/* 冲突对照盒（展开区） */
+.mem-conf-box { border-top: 1px dashed var(--danger-500, #ef4444); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.mem-conf-title { font-size: 12px; font-weight: 600; color: var(--danger-600, #dc2626); }
+.mem-conf-item { border: 1px solid var(--itf-line200, #e2e8f0); border-radius: 8px; padding: 8px 10px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
+.mem-foot { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 8px 2px 2px; }

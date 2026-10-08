@@ -72,6 +72,8 @@ export interface CitationItem {
   score: number | null;
   /** V6.0 命中来源为个人记忆库时回传，前端渲染「🧠 记忆」小标签 */
   personal?: boolean;
+  /** V7.2 命中来源为记忆条目时回传（条目 id，与 /api/memory/items/{id} 对应） */
+  memory_item_id?: string;
 }
 
 /** V6.0 知识库条目精简类型（/api/knowledge/bases items，个人记忆库标记 is_personal） */
@@ -91,6 +93,68 @@ export interface MemoryState {
   error?: string | null;
   msg_count?: number;
   attachments?: { total: number; done: number };
+}
+
+/* ===== V7.0-V7.1 记忆条目（与 app/api/memory.py:_item_out / memory_stats 出参对齐） ===== */
+
+/** 一条结构化记忆条目（kind/status 为字符串枚举，与 app/models/memory.py.MemoryItem 同口径） */
+export interface MemoryItem {
+  id: string;
+  user_id: number;
+  /** fact 事实 / preference 偏好 / rule 规则 / todo 待办 / profile 画像 */
+  kind: string;
+  /** 主题短语（语义槽位名） */
+  subject: string;
+  content: string;
+  /** 原文片段（来源消息的 evidence 摘录） */
+  evidence: string | null;
+  /** conversation 对话抽取 / user 手动写入 / file 文档提取 */
+  source: string;
+  conversation_id: string | null;
+  message_id: number | null;
+  /** 置信度 [0,1] */
+  confidence: number;
+  /** 重要性 [0,1] */
+  importance: number;
+  /** active / superseded / conflict / expired / deleted */
+  status: string;
+  root_id: string | null;
+  prev_id: string | null;
+  superseded_by: string | null;
+  conflict_with: string | null;
+  version: number;
+  expires_at: string | null;
+  half_life_days: number | null;
+  hit_count: number;
+  last_hit_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** GET /api/memory/items/{id} 详情：条目 + 版本链 + 冲突对照 */
+export interface MemoryItemDetail {
+  item: MemoryItem;
+  /** prev 链回溯到链头（旧版本在前） */
+  prev_chain: MemoryItem[];
+  /** next 链走到最新 active（新版本在前） */
+  next_chain: MemoryItem[];
+  /** 本条挂起的冲突对象（conflict_with 指向的条目） */
+  conflict_with_item: MemoryItem | null;
+  /** 指向本条的冲突条目列表 */
+  conflicting_items: MemoryItem[];
+}
+
+/** GET /api/memory/stats 健康度聚合数（仅本人） */
+export interface MemoryStats {
+  total: number;
+  by_status: Record<string, number>;
+  by_kind_active: Record<string, number>;
+  active: number;
+  conflict: number;
+  superseded: number;
+  expired: number;
+  avg_confidence_active: number;
+  chains_active: number;
 }
 
 /** 与 app/schemas/task.py:StepLogOut 对齐 */

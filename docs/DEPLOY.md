@@ -140,7 +140,7 @@ curl -sk https://ai.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)'
 | 宝塔网站 | `agentest.vip` | 静态站，根目录 `/www/wwwroot/agentest.vip` |
 | acme.sh | 续期 webroot | `/www/wwwroot/acme`（ai./erp. 子域 LE 证书） |
 
-### 6.1 记忆与调度配置组（V6.0）
+### 6.1 记忆与调度配置组（V6.0 基础 + V7.0~V7.3 条目记忆）
 
 > 对话记忆 + 个人知识库的运行参数，均读后端 `.env`（`AITF_*` 前缀），不配置走默认值；机制详见《docs/记忆与个人知识库机制说明.md》。
 
@@ -161,6 +161,28 @@ curl -sk https://ai.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)'
 | `AITF_MEMORY_SYSTEM_BRIEF` | `1` | 注入个人记忆摘要到 system 提示 |
 | `AITF_MEMORY_DIGEST_DAILY` | `1` | 夜间提炼生成「记忆日报」 |
 | `AITF_MEMORY_DIGEST_MANUAL` | `1` | 允许 🧠 手动触发整理 |
+| `AITF_MEMORY_ITEMS_ENABLED` | `1` | V7.0 条目级记忆双写总开关（关=行为与 V6.0 一致，可回滚） |
+| `AITF_MEMORY_MAX_PER_CONV` | `12` | 单会话单次最多入库条目数（防 LLM 失控刷表） |
+| `AITF_MEMORY_MIN_USER_MSGS` | `2` | 会话增量 user 消息数低于此值不抽取（过滤寒暄） |
+| `AITF_MEMORY_MIN_CONFIDENCE` | `0.5` | 置信度低于此值直接丢弃不入表 |
+| `AITF_MEMORY_SAME_THRESHOLD` | `0.85` | 内容 Jaccard ≥ 此值=语义等价（刷新不建版本） |
+| `AITF_MEMORY_NEAR_DUP_THRESHOLD` | `0.72` | subject Jaccard ≥ 此值=同槽位（近重复归并） |
+| `AITF_MEMORY_CONF_EPS` | `0.05` | 冲突裁决容差：新 ≥ 旧-eps 取代，否则挂起 |
+| `AITF_MEMORY_USER_BOOST` | `0.2` | 用户手动记忆被覆盖时的置信度虚拟加成 |
+| `AITF_MEMORY_EXTRACT_MAX_TOKENS` | `1500` | 事实抽取 LLM 调用 max_tokens |
+| `AITF_MEMORY_DELETE_CONV_ITEMS` | `1` | 删会话是否连带删该会话沉淀的记忆条目 |
+| `AITF_MEMORY_FORGET_ENABLED` | `1` | V7.1 遗忘任务总开关（TTL 过期 + 宽限物理清理） |
+| `AITF_MEMORY_PURGE_GRACE_DAYS` | `30` | expired/deleted 超过 N 天后物理清理（宽限期内可追溯） |
+| `AITF_MEMORY_HYBRID_ENABLED` | `1` | V7.2 条目混合检索总开关（关=只走文档级记忆检索） |
+| `AITF_MEMORY_ITEM_TOPK` | `3` | 条目检索注入条数（MMR 去冗余后取前 N） |
+| `AITF_MEMORY_W_VEC` | `0.5` | RRF 稠密通道权重（mock embedding 自动置 0） |
+| `AITF_MEMORY_RRF_K` | `60` | RRF 常数 K（名次→分数平滑因子） |
+| `AITF_MEMORY_MMR_LAMBDA` | `0.7` | MMR λ（相关性 vs 去冗余权衡） |
+| `AITF_MEMORY_MIN_SCORE` | `0.01` | 条目 base 分低于此值丢弃（噪声过滤） |
+| `AITF_MEMORY_BM25_MAX_DOCS` | `2000` | BM25 候选上限（active 条目按 updated_at 取最近 N 条） |
+| `AITF_MEMORY_LOG_SAMPLE` | `0.2` | 检索埋点采样率 [0,1]（V7.3） |
+| `AITF_MEMORY_VEC_BACKFILL_ON_BOOT` | `0` | 启动时是否回填存量条目向量（默认关，走独立脚本） |
+| `AITF_RAG_CONTEXT_LIMIT` | `4000` | RAG 参考上下文拼装长度上限（字符） |
 
 > ⚠️ **单 worker 约束**：uvicorn 必须 **`workers=1`（单进程）** 启动。夜间调度任务有 DB 抢占锁（`job_runs` 表，同任务同业务日期唯一）兜底，但多进程部署仍可能重复触发调度与后台任务；如确需多进程，必须先置 `AITF_SCHEDULER=0` 关闭调度器。
 >

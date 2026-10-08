@@ -198,3 +198,93 @@ def search(
             "metadata": metas[i] if i < len(metas) else {},
         })
     return out
+
+
+# ============ V7.2：条目级记忆向量（source=mem_item 显式标量过滤） ============
+# 只新增不改：index_chunks / search 等既有函数签名与行为零变动（零回归风险）。
+# Chroma where 不支持 $exists，条目向量靠显式标量 "source": "mem_item" 圈定。
+
+def index_memory_vectors(items: list) -> int:
+    """把记忆条目写入向量库（upsert 天然幂等，可重复调用/重复回填）。
+
+    items：MemoryItem ORM 行列表。mock embedding 时**静默跳过**（绝不写
+    哈希假向量——假向量会稀释真实检索结果，这是 V7.2 最关键的防御）；
+    任何异常只告警不抛（向量是旁路，行数据才是权威）。返回实际写入条数。
+    """
+    if not items:
+        return 0
+    if using_mock_embedding():
+        return 0  # 无真实 embedding：静默跳过，不写假向量
+    try:
+        coll = _collection()
+        coll.upsert(
+            ids=[f"memitem:{it.id}" for it in items],
+            embeddings=embed_texts([(it.content or "") for it in items]),
+            documents=[(it.content or "") for it in items],
+            metadatas=[{
+                "source": "mem_item",
+                "user_id": it.user_id,
+                "memory_item_id": it.id,
+                "kind": it.kind,
+                "subject": (it.subject or "")[:200],
+                "knowledge_id": "",
+                "kb_id": "",
+                "personal": True,
+                "file_name": f"记忆 · {it.subject}"[:200],
+            } for it in items],
+        )
+        return len(items)
+    except Exception as e:  # noqa: BLE001  向量旁路失败不阻断行数据链路
+        logger.warning("记忆条目向量写入失败（%d 条）：%s", len(items), e)
+        return 0
+
+
+def search_memory_vectors(query: str, user_id: int, top_k: int = 5) -> list[dict]:
+    """条目向量检索（仅 source=mem_item + user_id 过滤；mock embedding 返回 []）。
+
+    返回与 search() 同形状的 [{id, score, document, metadata}]。
+    """
+    if using_mock_embedding():
+        return []
+    try:
+        qvec = embed_texts([query])[0]
+        res = _collection().query(
+            query_embeddings=[qvec],
+            n_results=max(1, min(top_k, 50)),
+            where={"$and": [{"source": "mem_item"}, {"user_id": user_id}]},
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("记忆条目向量检索失败：%s", e)
+        return []
+    out: list[dict] = []
+    ids = (res.get("ids") or [[]])[0]
+    docs = (res.get("documents") or [[]])[0]
+    metas = (res.get("metadatas") or [[]])[0]
+    dists = (res.get("distances") or [[]])[0]
+    for i, cid in enumerate(ids):
+        score = 1.0 - float(dists[i]) if i < len(dists) else 0.0
+        out.append({
+            "id": cid,
+            "score": round(max(0.0, min(1.0, score)), 4),
+            "document": docs[i] if i < len(docs) else "",
+            "metadata": metas[i] if i < len(metas) else {},
+        })
+    return out
+
+
+def delete_item_vectors(item_id: str) -> None:
+    """删除单个记忆条目的全部向量（hard_delete / 宽限清理 / 删会话级联时调用）。"""
+    try:
+        _collection().delete(where={"memory_item_id": item_id})
+    except Exception as e:  # noqa: BLE001  删除失败不阻断主流程
+        logger.warning("删除记忆条目向量失败 %s: %s", item_id, e)
+
+
+def delete_user_item_vectors(user_id: int) -> None:
+    """删除某用户全部记忆条目向量（删用户级联清理时调用）。"""
+    try:
+        _collection().delete(where={"$and": [{"source": "mem_item"},
+                                             {"user_id": user_id}]})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("删除用户记忆条目向量失败 %s: %s", user_id, e)
