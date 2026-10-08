@@ -122,7 +122,7 @@ export default function ChatPanel({
   // V6.0 手动「存入记忆库」
   const memoryBusy = useChatStore((s) => s.memoryBusy);
   const digestMemory = useChatStore((s) => s.digestMemory);
-  const ensurePersonalKb = useChatStore((s) => s.ensurePersonalKb);
+  const ensureDefaultKbs = useChatStore((s) => s.ensureDefaultKbs);
   const [kbOpen, setKbOpen] = useState(false);
   const [kbList, setKbList] = useState<KbBaseItem[]>([]);
   /** 附件格式（动态下发 + 兜底）：挂载后异步解析为后端真源 */
@@ -208,20 +208,20 @@ export default function ChatPanel({
     loadKbList();
   }, [kbOpen, loadKbList]);
 
-  // V6.0：挂载即幂等并入个人库（kbIds 自动包含个人记忆库 id，徽章计数同步）
+  // V6.0/V7.4.1：挂载即幂等并入默认勾选（个人记忆库 + 全部共享业务库，徽章计数同步）
   useEffect(() => {
-    void ensurePersonalKb();
-  }, [ensurePersonalKb]);
+    void ensureDefaultKbs();
+  }, [ensureDefaultKbs]);
 
   // V6.0：记忆整理完成等场景触发的库列表刷新（chatStore dispatch "kb-refresh"）
   useEffect(() => {
     const onRefresh = () => {
-      void ensurePersonalKb();
+      void ensureDefaultKbs();
       loadKbList();
     };
     window.addEventListener("kb-refresh", onRefresh);
     return () => window.removeEventListener("kb-refresh", onRefresh);
-  }, [ensurePersonalKb, loadKbList]);
+  }, [ensureDefaultKbs, loadKbList]);
 
   // V6.0：附件格式动态化（模块级单例 Promise，只拉一次；失败回落兜底值）
   useEffect(() => {

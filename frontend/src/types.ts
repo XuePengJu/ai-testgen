@@ -69,11 +69,14 @@ export interface CitationItem {
   doc_title: string;
   context_header: string;
   snippet: string;
+  /** V7.4.1：真实向量余弦相似度（0~1）。仅关键词命中或 mock embedding 时为 null。 */
   score: number | null;
   /** V6.0 命中来源为个人记忆库时回传，前端渲染「🧠 记忆」小标签 */
   personal?: boolean;
   /** V7.2 命中来源为记忆条目时回传（条目 id，与 /api/memory/items/{id} 对应） */
   memory_item_id?: string;
+  /** V7.4.1 命中通道：hybrid=向量+关键词、vector=仅向量、keyword=仅关键词（此时 score 为 null） */
+  hit_channel?: string;
 }
 
 /** V6.0 知识库条目精简类型（/api/knowledge/bases items，个人记忆库标记 is_personal） */
@@ -83,6 +86,8 @@ export interface KbBaseItem {
   doc_count?: number;
   /** true = 用户个人记忆库（对话记忆沉淀，前端默认勾选且不可取消） */
   is_personal?: boolean;
+  /** V7.4.1：'global' = 所有人可见的共享库（前端首次进入时默认勾选，让演示态也有引用来源） */
+  visibility?: string;
 }
 
 /** V6.0 会话记忆整理状态（GET /api/conversations/{id}/memory/state） */

@@ -1729,6 +1729,8 @@ button.cl-select:hover { background: #f5f7fa; }
 .cite-chip .cc-idx { color: var(--primary, #2563eb); font-weight: 600; }
 .cite-chip .cc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cite-chip .cc-score { font-size: 11px; color: var(--gray-500, #6b7280); flex: none; }
+/* V7.4.1：仅关键词(BM25)命中的引用没有可信向量相似度，标「关键词」而非百分比 */
+.cite-chip .cc-score.cc-kw { color: var(--amber-600, #d97706); background: #fffbeb; border-radius: 8px; padding: 0 5px; }
 
 /* ==================================================================
    V4.2 全量对齐设计稿（knowledge-hub-redesign）

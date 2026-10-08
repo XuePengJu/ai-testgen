@@ -114,10 +114,12 @@ interface ChatState {
   kbIds: string[];
   /** V6.0 个人记忆库 id（/api/knowledge/bases 里 is_personal=true 的库；null = 未拉到/不存在） */
   personalKbId: string | null;
+  /** V7.4.1 是否已铺开过「默认勾选」；铺过一次后不再自动回填，避免用户手动取消被覆盖 */
+  kbDefaultsApplied: boolean;
   /** V6.0 手动存入记忆库进行中（发起到轮询结束全程 true，期间按钮置灰防重复） */
   memoryBusy: boolean;
-  /** V6.0 幂等并入个人库：拉 bases 找 is_personal → 不在 kbIds 则加入（重复调用安全） */
-  ensurePersonalKb: () => Promise<void>;
+  /** V6.0/V7.4.1 幂等并入默认勾选：个人记忆库 + 全部共享(global)业务库（重复调用安全） */
+  ensureDefaultKbs: () => Promise<void>;
   toggleKb: (id: string) => void;
   clearKbs: () => void;
   /** V6.0 手动「存入记忆库」：POST digest → 202 后轮询 state → done/failed/409/超限分别提示 */
@@ -160,20 +162,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
   inputFocusSeq: 0,
   kbIds: [],
   personalKbId: null,
+  kbDefaultsApplied: false,
   memoryBusy: false,
 
-  async ensurePersonalKb() {
+  async ensureDefaultKbs() {
     try {
       const r = await api(API + "/knowledge/bases");
       if (!r.ok) return;
       const d = (await r.json()) as { items?: KbBaseItem[] };
       const items = Array.isArray(d?.items) ? d.items : [];
       const personal = items.find((k) => k?.is_personal && k.id);
-      if (!personal) return;
-      // 幂等：id 变化才写 personalKbId；kbIds 里没有才并入
-      if (get().personalKbId !== personal.id) set({ personalKbId: personal.id });
-      if (!get().kbIds.includes(personal.id)) {
-        set({ kbIds: [...get().kbIds, personal.id] });
+
+      // V7.4.1 首次铺开默认勾选：个人记忆库 + 全部共享(global)业务库。
+      // 为什么要默认勾共享库：V5.8 语义是「不勾选 = 不检索」，演示时访客什么
+      // 都没勾 → 回答没有任何引用来源 → 被误认为系统压根没有知识库检索能力。
+      // 只铺一次（kbDefaultsApplied），之后用户手动取消不会被反复加回。
+      if (!get().kbDefaultsApplied) {
+        const merged = new Set(get().kbIds);
+        if (personal?.id) merged.add(personal.id);
+        for (const k of items) {
+          if (k?.id && !k.is_personal && k.visibility === "global") merged.add(k.id);
+        }
+        set({
+          kbIds: [...merged],
+          kbDefaultsApplied: true,
+          personalKbId: personal?.id ?? get().personalKbId,
+        });
+        return;
+      }
+      // 幂等：个人库可能首次整理时才创建，之后补入并同步 personalKbId
+      if (personal?.id) {
+        if (!get().kbIds.includes(personal.id)) {
+          set({ kbIds: [...get().kbIds, personal.id] });
+        }
+        if (get().personalKbId !== personal.id) set({ personalKbId: personal.id });
       }
     } catch {
       /* 拉取失败静默：个人库由服务端隐式并入检索，UI 下次打开再补 */
@@ -247,7 +269,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const st = (await sr.json()) as MemoryState;
         if (st.status === "done") {
           toast("已存入记忆库");
-          void get().ensurePersonalKb(); // 幂等并入（首次整理时个人库可能刚创建）
+          void get().ensureDefaultKbs(); // 幂等并入（首次整理时个人库可能刚创建）
           // 通知界面刷新库列表（ChatPanel 监听后重拉 bases，让 🧠 徽章/计数即时可见）
           window.dispatchEvent(new CustomEvent("kb-refresh"));
           return;

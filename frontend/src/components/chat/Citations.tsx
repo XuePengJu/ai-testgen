@@ -40,9 +40,19 @@ export default function Citations({
                 🧠 记忆
               </span>
             )}
-            {typeof c.score === "number" && (
+            {/* V7.4.1：score = 真实向量余弦相似度。仅关键词命中时后端给 null，
+                改标「关键词」——混合检索的 RRF 名次分满分只有 1.6%，当相似度
+                百分比展示会塌成 1~2% 造成「没匹配上」的误判，故不再外传 */}
+            {typeof c.score === "number" ? (
               <span className="cc-score">{(c.score * 100).toFixed(0)}%</span>
-            )}
+            ) : c.hit_channel === "keyword" ? (
+              <span
+                className="cc-score cc-kw"
+                title="仅靠关键词(BM25)命中，向量通道未召回该分块"
+              >
+                关键词
+              </span>
+            ) : null}
           </button>
         ))}
       </div>

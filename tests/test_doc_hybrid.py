@@ -296,4 +296,122 @@ def test_metadata_contract(monkeypatch) -> None:
     assert meta["context_header"] == "父级标题"
     assert meta["personal"] is False
     assert meta["chunk_id"] == "c_meta"
-    assert isinstance(hit["score"], float)
+    # V7.4.1：mock embedding 下不给向量相似度（哈希假向量的余弦是噪声）；
+    # 本条只被 BM25 命中，故 score 为 None + 通道标 keyword
+    assert hit["score"] is None
+    assert meta["hit_channel"] == "keyword"
+
+
+# ---------- V7.4.1：score 口径（真实向量余弦，不是 RRF 名次分）----------
+
+def test_score_is_vector_cosine_not_rrf(monkeypatch) -> None:
+    """非 mock 下 score 必须是向量余弦相似度（0~1），而非 RRF 名次分（≈0.0164）。
+
+    背景：RRF 满分只有 1/(K+1)≈0.0164，前端 `score*100` 当百分比渲染会塌成
+    1~2%，实测 0.0155 其实是理论满分的 94.5%，却被显示成 2%。
+    """
+    kb = "kb_score_semantics"
+    db = SessionLocal()
+    try:
+        _add_knowledge(db, "k_s", kb)
+        _add_chunk(db, "c_s1", "k_s", kb, "库存上限规则说明")
+        _add_chunk(db, "c_s2", "k_s", kb, "采购入库流程说明")
+        db.commit()
+        monkeypatch.setattr(vectorstore, "using_mock_embedding", lambda: False)
+        monkeypatch.setattr(vectorstore, "search",
+                            lambda *a, **k: _dense(("c_s1", 0.83), ("c_s2", 0.61)))
+        res = hybrid_search_docs(db, "库存上限", [kb], top_k=5)
+    finally:
+        db.close()
+
+    by_id = {h["id"]: h for h in res}
+    # 对外曝露的是余弦，不是 RRF
+    assert by_id["c_s1"]["score"] == 0.83
+    assert by_id["c_s2"]["score"] == 0.61
+    # 双通道命中；RRF 名次分只在 metadata 里（供排查），绝不外传为 score
+    assert by_id["c_s1"]["metadata"]["hit_channel"] == "hybrid"
+    assert by_id["c_s1"]["metadata"]["rrf_score"] < 0.02
+
+
+def test_keyword_only_chunk_reports_no_score(monkeypatch) -> None:
+    """向量零召回、仅靠 BM25 捞回的 chunk → score=None + hit_channel=keyword。"""
+    kb = "kb_kw_only"
+    db = SessionLocal()
+    try:
+        _add_knowledge(db, "k_kw", kb)
+        _add_chunk(db, "c_kw", "k_kw", kb, "库存上限为 666 件需要审批")
+        db.commit()
+        monkeypatch.setattr(vectorstore, "using_mock_embedding", lambda: False)
+        monkeypatch.setattr(vectorstore, "search", lambda *a, **k: [])
+        res = hybrid_search_docs(db, "库存上限", [kb], top_k=5)
+    finally:
+        db.close()
+
+    assert _ids(res) == ["c_kw"]
+    assert res[0]["score"] is None
+    assert res[0]["metadata"]["hit_channel"] == "keyword"
+
+
+def test_mock_embedding_never_exposes_vector_score(monkeypatch) -> None:
+    """mock embedding 下即便稠密通道「命中」（假向量），也不得外传相似度。"""
+    kb = "kb_mock_score"
+    db = SessionLocal()
+    try:
+        _add_knowledge(db, "k_m", kb)
+        _add_chunk(db, "c_m", "k_m", kb, "库存上限规则说明")
+        db.commit()
+        monkeypatch.setattr(vectorstore, "using_mock_embedding", lambda: True)
+        monkeypatch.setattr(vectorstore, "search",
+                            lambda *a, **k: _dense(("c_m", 0.91)))
+        res = hybrid_search_docs(db, "库存上限", [kb], top_k=5)
+    finally:
+        db.close()
+
+    assert res and res[0]["score"] is None
+    assert res[0]["metadata"]["hit_channel"] == "keyword"
+
+
+# ---------- V7.4.1：单文档命中限流 ----------
+
+def test_max_per_doc_limits_and_backfills(monkeypatch) -> None:
+    """同一篇最多 N 条；超限的跳过继续往下取，把名额让给别的文档。"""
+    kb = "kb_max_per_doc"
+    db = SessionLocal()
+    try:
+        _add_knowledge(db, "k_a", kb, title="文档A")
+        _add_knowledge(db, "k_b", kb, title="文档B")
+        for i in range(3):
+            _add_chunk(db, f"a{i}", "k_a", kb, "库存上限规则说明", age_days=i)
+        _add_chunk(db, "b0", "k_b", kb, "库存上限规则说明", age_days=3)
+        db.commit()
+        monkeypatch.setattr(vectorstore, "using_mock_embedding", lambda: True)
+        monkeypatch.setattr(vectorstore, "search", lambda *a, **k: [])
+        monkeypatch.setattr(config, "AITF_DOC_MAX_PER_DOC", 2)
+        res = hybrid_search_docs(db, "库存上限", [kb], top_k=4)
+    finally:
+        db.close()
+
+    ids = _ids(res)
+    assert sum(1 for i in ids if i.startswith("a")) == 2, f"同文档应限 2 条：{ids}"
+    assert "b0" in ids, f"被限流后应能顶上别的文档：{ids}"
+    # 池子里只有 4 块且 a 有 3 块 → 限流后取到 a0/a1/b0 共 3 条
+    assert len(ids) == 3, ids
+
+
+def test_max_per_doc_zero_means_unlimited(monkeypatch) -> None:
+    """AITF_DOC_MAX_PER_DOC=0 → 关闭限流（回滚口径）。"""
+    kb = "kb_unlimited"
+    db = SessionLocal()
+    try:
+        _add_knowledge(db, "k_u", kb)
+        for i in range(4):
+            _add_chunk(db, f"u{i}", "k_u", kb, "库存上限规则说明", age_days=i)
+        db.commit()
+        monkeypatch.setattr(vectorstore, "using_mock_embedding", lambda: True)
+        monkeypatch.setattr(vectorstore, "search", lambda *a, **k: [])
+        monkeypatch.setattr(config, "AITF_DOC_MAX_PER_DOC", 0)
+        res = hybrid_search_docs(db, "库存上限", [kb], top_k=4)
+    finally:
+        db.close()
+
+    assert len(_ids(res)) == 4

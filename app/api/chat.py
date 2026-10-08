@@ -312,6 +312,9 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             # 不受用户是否已有个人知识库影响；个人库文档仍按 kb_id 匹配判定。
             "personal": (meta.get("personal") is True) or (
                 bool(personal_kb_id) and meta.get("kb_id") == personal_kb_id),
+            # V7.4.1：命中通道（hybrid|vector|keyword）。仅关键词命中的 score 为
+            # None（没有可信的向量相似度可展示），前端据此标「关键词」而非留空。
+            "hit_channel": (meta.get("hit_channel") or ""),
             # V7.2：条目记忆命中时携带条目 id（前端跳转记忆面板定位用；文档命中为空串）
             "memory_item_id": (meta.get("memory_item_id") or ""),
         })

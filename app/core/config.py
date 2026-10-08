@@ -170,6 +170,9 @@ AITF_DOC_BM25_MAX_DOCS  = int(os.getenv("AITF_DOC_BM25_MAX_DOCS", "3000"))      
 AITF_DOC_W_VEC          = float(os.getenv("AITF_DOC_W_VEC", "0.5"))             # RRF 稠密通道权重（1-w 为 BM25；mock embedding 自动置 0）
 AITF_DOC_RRF_K          = int(os.getenv("AITF_DOC_RRF_K", "60"))                # RRF 常数 K
 AITF_DOC_HYBRID_GUEST   = os.getenv("AITF_DOC_HYBRID_GUEST", "1") == "1"        # guest 是否启用文档 BM25 通道（与文档检索对 guest 可用口径一致）
+# V7.4.1 引用多样性：同一篇文档最多贡献 N 条命中（0=不限）。条目通道有 MMR 去冗余，
+# 文档通道原先没有 —— 实测 6 条引用里 3 条来自同一篇文档，白占 top_k 名额。
+AITF_DOC_MAX_PER_DOC    = int(os.getenv("AITF_DOC_MAX_PER_DOC", "2"))           # 单文档命中上限；超限的跳过继续取后面的，仍能凑满 top_k
 
 # V7.4 记忆检索阈值修复：旧值 0.01 过高（RRF 满分仅 1/(K+1)=0.0164），
 # 导致任何 1 年以上的条目无论排第几都被过滤 —— 改为相对阈值主控。
