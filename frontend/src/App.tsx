@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 import {
   Shield, ShieldCheck, Loader2, LogOut, Cpu,
   BookOpen, MessageSquare, UserPlus, ChevronsLeft, ChevronsRight,
-  Boxes, ChevronDown, ExternalLink, Library, BarChart3,
+  Boxes, ChevronDown, ExternalLink, Library, BarChart3, Globe,
 } from "lucide-react";
 import { useAuth } from "./hooks/useAuth";
 import { useChatStore } from "./store/chatStore";
@@ -50,6 +50,9 @@ function normalizeView(v: string | null): View {
 }
 
 const GITHUB_REPO = "https://github.com/XuePengJu/ai-testflow";
+
+/** 个人主页（与平台同域名的站点入口） */
+const HOMEPAGE_URL = "https://agentest.vip/";
 
 /** GitHub 官方 mark（单色，随 currentColor） */
 function GithubMark({ size = 18 }: { size?: number }) {
@@ -248,6 +251,17 @@ export default function App() {
           <span className="rl-ico i-git"><GithubMark /></span>
           <span className="rl-txt">源码</span>
           <span className="rl-tip" aria-hidden="true">在 GitHub 上查看源码</span>
+        </a>
+        <a
+          className="rail-btn"
+          href={HOMEPAGE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="打开个人主页 agentest.vip"
+        >
+          <span className="rl-ico i-home"><Globe size={15} /></span>
+          <span className="rl-txt">主页</span>
+          <span className="rl-tip" aria-hidden="true">打开个人主页 agentest.vip</span>
         </a>
         {railBtn("selfcheck", scShow ? <Loader2 className="spin" /> : <ShieldCheck />, "系统自检", true, { onClick: runSelfCheck, aria: "系统自检（验证加密链路）", ico: "i-check" })}
         {/* V5.3：「设置」rail 按钮移除 —— 个人中心改由 rail 底部用户名区域进入 */}

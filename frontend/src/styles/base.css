@@ -2043,6 +2043,7 @@ button.cl-select:hover { background: #f5f7fa; }
 .i-admin  { background: #fee9ec; color: #e11d48; }
 .i-check  { background: #fff3e4; color: #f59e0b; }
 .i-git    { background: #eceef4; color: #4b5163; }
+.i-home   { background: #e6f9ec; color: #16a34a; }
 .i-set    { background: #e8f1fe; color: #4f8df7; }
 .i-e2e    { background: #e0ecff; color: #2563eb; }
 /* W3 M8：补齐缺失的色块（原代码引用了但 CSS 未定义，图标块透明） */
