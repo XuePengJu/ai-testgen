@@ -650,6 +650,13 @@ body {
 .pe-flex { flex: 1; }
 .pe-dirty { color: #d4880f; font-size: 12px; }
 .pe-loading { flex: 1; display: grid; place-items: center; color: #8f959e; font-size: 13px; }
+/* V7.4.3 访客访问提示词定制的降级提示（后端 403；原来会一直停在「加载中…」） */
+.pe-denied {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 32px; text-align: center;
+}
+.pe-denied-title { margin: 0; font-size: 14px; font-weight: 600; color: #1f2329; }
+.pe-denied-sub { margin: 0; max-width: 460px; font-size: 12.5px; line-height: 1.75; color: #646a73; }
 .send-btn {
   position: absolute; right: 8px; bottom: 8px;
   width: 40px; height: 40px; border: none; border-radius: 50%;

@@ -23,10 +23,20 @@ export default function PromptEditorModal({ open, onClose }: { open: boolean; on
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  /** V7.4.3：后端 /api/prompts 全部 require_user → 访客恒 403。
+   *  必须单独标记：原来 403 被静默吞成空列表，导致弹窗永远停在「加载中…」。 */
+  const [denied, setDenied] = useState(false);
 
   const loadList = useCallback(async (): Promise<Item[]> => {
     const r = await api(API + "/prompts").catch(() => null);
-    if (!r || !r.ok) return [];
+    if (!r) return [];
+    if (r.status === 403) {
+      setDenied(true);
+      setItems([]);
+      return [];
+    }
+    if (!r.ok) return [];
+    setDenied(false);
     const j = (await r.json()) as { items: Item[] };
     setItems(j.items);
     return j.items;
@@ -124,6 +134,16 @@ export default function PromptEditorModal({ open, onClose }: { open: boolean; on
           </button>
         </div>
         <div className="pe-body">
+          {denied ? (
+            <div className="pe-denied">
+              <p className="pe-denied-title">访客模式不支持提示词定制</p>
+              <p className="pe-denied-sub">
+                提示词是每个账号各自的配置（AI 角色口吻、用例生成模板）。注册或登录后即可自定义；
+                游客身份下沿用系统默认提示词，不影响对话与用例生成。
+              </p>
+            </div>
+          ) : (
+          <>
           <aside className="pe-list">
             {groups.map((g) => (
               <div key={g.label}>
@@ -176,6 +196,8 @@ export default function PromptEditorModal({ open, onClose }: { open: boolean; on
               <div className="pe-loading">加载中…</div>
             )}
           </section>
+          </>
+          )}
         </div>
       </div>
     </div>
