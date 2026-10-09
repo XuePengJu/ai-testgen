@@ -1,7 +1,7 @@
 # API 接口手册
 
 > 任务类接口均需 `Authorization: Bearer <token>`（guest / user / admin 皆可）。
-> 交互式文档（Swagger）：服务启动后访问 <http://127.0.0.1:8000/docs>。
+> 交互式文档（Swagger）：服务启动后访问 <http://127.0.0.1:8005/docs>。
 
 ## 认证
 

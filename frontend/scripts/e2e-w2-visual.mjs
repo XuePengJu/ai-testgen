@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const BASE = "http://127.0.0.1:8000";
+const BASE = "http://127.0.0.1:8005";
 const OUT = "/tmp/e2e-w2";
 const results = [];
 const ok = (name, cond) => { results.push(`${cond ? "✅" : "❌"} ${name}`); if (!cond) process.exitCode = 1; };

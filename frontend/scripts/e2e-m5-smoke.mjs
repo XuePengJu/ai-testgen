@@ -7,7 +7,7 @@
  * 截图落档 /tmp/e2e-m5/
  *
  * 运行：node scripts/e2e-m5-smoke.mjs
- * 前置：后端 8000 启动；平台模型池（user_id=0）至少一条可用候选
+ * 前置：后端 8005 启动；平台模型池（user_id=0）至少一条可用候选
  *
  * 设计依据（llm_service.chat_stream）：source in (user, platform) 都走真实调用 ——
  * 用户自配池的 UI 路径由 M4 ③④ 覆盖；本冒烟验证「注册用户经平台池出真实回复」的
@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const URL = process.env.M5_URL || "http://localhost:8000";
+const URL = process.env.M5_URL || "http://localhost:8005";
 const API = URL + "/api";
 const SHOT_DIR = "/tmp/e2e-m5";
 fs.mkdirSync(SHOT_DIR, { recursive: true });

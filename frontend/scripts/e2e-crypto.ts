@@ -1,7 +1,7 @@
 /**
  * M1 加密链路端到端自检（V2.8 方案 §8 风险#1 的回归防线）。
  *
- * 运行（后端须先起在 8000）：
+ * 运行（后端须先起在 8005）：
  *   node --experimental-strip-types scripts/e2e-crypto.ts
  *
  * 覆盖 4 段链路：
@@ -12,7 +12,7 @@
  */
 import { aesGcmEncrypt, aesGcmDecrypt } from "../src/crypto/aesGcm.ts";
 
-const BASE = process.env.AITF_BASE || "http://127.0.0.1:8000";
+const BASE = process.env.AITF_BASE || "http://127.0.0.1:8005";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) {

@@ -6,7 +6,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = "http://127.0.0.1:8000";
+const BASE = "http://127.0.0.1:8005";
 const SHOT_DIR = "/tmp/e2e-v511";
 import fs from "fs";
 fs.mkdirSync(SHOT_DIR, { recursive: true });

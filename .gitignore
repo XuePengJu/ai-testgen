@@ -39,6 +39,8 @@ venv/
 .vscode/
 .trae/
 .workbuddy/
+.envrc
+.direnv/
 
 # 本地向量库数据（Chroma 持久化，不入库）
 vectors/

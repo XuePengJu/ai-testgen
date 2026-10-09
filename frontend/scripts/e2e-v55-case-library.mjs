@@ -4,7 +4,7 @@
  */
 import { chromium } from "playwright";
 
-const URL = process.env.V55_URL || "http://127.0.0.1:8000";
+const URL = process.env.V55_URL || "http://127.0.0.1:8005";
 const SHOT_DIR = "/tmp/e2e-v55";
 import fs from "node:fs";
 fs.mkdirSync(SHOT_DIR, { recursive: true });

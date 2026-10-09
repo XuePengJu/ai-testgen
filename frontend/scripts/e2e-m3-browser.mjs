@@ -12,13 +12,13 @@
  *   ⑧ 全程 0 JS 错误
  * 截图落档 /tmp/e2e-m3/
  *
- * 运行：node scripts/e2e-m3-browser.mjs（M3_URL 默认 http://localhost:8000，需后端已启动）
+ * 运行：node scripts/e2e-m3-browser.mjs（M3_URL 默认 http://localhost:8005，需后端已启动）
  * 依赖：test / test1234 账号；批跑时 m2 先行会为 test 账户新建带导出文件的任务
  */
 import { chromium } from "playwright";
 import fs from "node:fs";
 
-const URL = process.env.M3_URL || "http://localhost:8000";
+const URL = process.env.M3_URL || "http://localhost:8005";
 const SHOT_DIR = "/tmp/e2e-m3";
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 

@@ -7,7 +7,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs";
 
-const URL = process.env.M1_URL || "http://localhost:8000";
+const URL = process.env.M1_URL || "http://localhost:8005";
 const SHOT_DIR = "/tmp/e2e-v591-edit-fix";
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 

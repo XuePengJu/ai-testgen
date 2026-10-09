@@ -1,8 +1,8 @@
 """AI 测试工作流平台 · 入口。
 
-启动：uvicorn main:app --reload --port 8000
-访问：http://127.0.0.1:8000  （前端 dashboard）
-      http://127.0.0.1:8000/docs （Swagger 接口文档）
+启动：uvicorn main:app --reload --port 8005
+访问：http://127.0.0.1:8005  （前端 dashboard）
+      http://127.0.0.1:8005/docs （Swagger 接口文档）
 
 V2：认证 + 多用户（guest/user/admin）。反代部署时才开 --proxy-headers。
 """
@@ -204,4 +204,4 @@ if _vendor_dir.is_dir():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8005, reload=True)

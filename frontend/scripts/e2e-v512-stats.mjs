@@ -1,10 +1,10 @@
 /**
  * V5.12 使用统计页截图验证（push 前铁律：≥3 张）。
- * 前置：本地 8001 已起。用法：node scripts/e2e-v512-stats.mjs
+ * 前置：本地 8005 已起。用法：node scripts/e2e-v512-stats.mjs
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.M1_URL || "http://127.0.0.1:8001";
+const BASE = process.env.M1_URL || "http://127.0.0.1:8005";
 const OUT = "/tmp/e2e-v512";
 const results = [];
 const ok = (name, cond) => { results.push(`${cond ? "✅" : "❌"} ${name}`); if (!cond) process.exitCode = 1; };

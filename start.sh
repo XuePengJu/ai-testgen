@@ -2,7 +2,7 @@
 # ai-testgen 一键启动脚本（AI 对话 + 用例生成 + 知识库，clone 即用，无机器相关路径）
 #
 # 用法：
-#   ./start.sh                 # 首次：建 .venv + 装依赖 + 启动（8001 端口）
+#   ./start.sh                 # 首次：建 .venv + 装依赖 + 启动（8005 端口）
 #                              # 之后：依赖已装过则秒起
 #   PORT=9001 ./start.sh       # 换端口启动
 #   SKIP_DEPS=1 ./start.sh     # 跳过依赖检查，直接启动（最快）
@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT="${PORT:-8001}"
+PORT="${PORT:-8005}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
 FORCE_INSTALL="${FORCE_INSTALL:-0}"
 MARKER=".venv/.deps-installed"

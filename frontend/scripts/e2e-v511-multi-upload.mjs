@@ -16,7 +16,7 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const URL = process.env.E2E_URL || "http://127.0.0.1:8000";
+const URL = process.env.E2E_URL || "http://127.0.0.1:8005";
 const SHOT_DIR = "/tmp";
 
 const step = (ok, name) => console.log(`${ok ? "✅" : "❌"} 步骤: ${name}`);

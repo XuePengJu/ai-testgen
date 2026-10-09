@@ -10,13 +10,13 @@
  *   ⑥ 全程 0 JS 错误
  * 截图落档 /tmp/e2e-m2/
  *
- * 运行：node scripts/e2e-m2-browser.mjs（M2_URL 默认 http://localhost:8000，需后端已启动）
+ * 运行：node scripts/e2e-m2-browser.mjs（M2_URL 默认 http://localhost:8005，需后端已启动）
  * 依赖：test / test1234 账号（本地种子账号）
  */
 import { chromium } from "playwright";
 import fs from "node:fs";
 
-const URL = process.env.M2_URL || "http://localhost:8000";
+const URL = process.env.M2_URL || "http://localhost:8005";
 const SHOT_DIR = "/tmp/e2e-m2";
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 

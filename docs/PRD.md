@@ -632,7 +632,7 @@
 | 可演示性 | 零外部依赖即可完整演示（mock 兜底）；5 分钟内可从启动到导出全流程走通                                  |
 | 可维护  | 前端组件化（React+TS）；后端 FastAPI 分层；pytest 测试套件（**525 条** V5.9 本地基线，2026-09-29 实测 525 passed）随代码演进回归；LLM 调用统一收敛适配层（langchain/httpx 双实现回退）+ 多模型池调度 |
 | 自动化执行 | 本机执行（Playwright chromium headless），执行队列 1 worker 串行；单 run timeout 600s；subprocess 无 shell + env 白名单；被测系统密码 Fernet 加密、凭据不落盘 |
-| 可部署  | 前后端同源伺服（FastAPI 挂载前端静态文件，单端口 8000 完整提供前端+API），阿里云 ECS + 宝塔 Nginx 反代对外访问（`ai.agentest.vip`，三域名全 HTTPS，ICP 已备案）；进程由宝塔 Python 项目管理器托管；支持 Docker 化部署               |
+| 可部署  | 前后端同源伺服（FastAPI 挂载前端静态文件，单端口 8005 完整提供前端+API），阿里云 ECS + 宝塔 Nginx 反代对外访问（`ai.agentest.vip`，三域名全 HTTPS，ICP 已备案）；进程由宝塔 Python 项目管理器托管；支持 Docker 化部署               |
 | 数据层  | 生产 MySQL（阿里云远程库），本地可降级 SQLite；SQLAlchemy ORM 双方言适配，迁移幂等（TEXT 列迁移不带 DEFAULT，规避 MySQL 1101） |
 | 可观测  | LLM 调用链路 LangSmith 打点（FR-V 规划中，需 `LANGSMITH_API_KEY`）；任务步骤子进度实时可见（FR-U）；运行日志落盘：app.log 小时切片 + error.log 单独成档 + 接口出入参脱敏访问日志（FR-AI） |
 

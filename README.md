@@ -19,13 +19,13 @@ FastAPI + SQLAlchemy（MySQL/SQLite 双方言）· React18 + TypeScript + Vite �
 ## 快速启动
 
 ```bash
-./start.sh                    # 建 venv + 装依赖 + 启动（默认 8001 端口）
+./start.sh                    # 建 venv + 装依赖 + 启动（默认 8005 端口）
 # PORT=9001 ./start.sh        # 换端口
 # SKIP_DEPS=1 ./start.sh      # 跳过依赖检查
 ```
 
-- 前端构建产物 `frontend/dist/` 由后端静态托管，访问 `http://127.0.0.1:8001/`
-- Swagger：`http://127.0.0.1:8001/docs`
+- 前端构建产物 `frontend/dist/` 由后端静态托管，访问 `http://127.0.0.1:8005/`
+- Swagger：`http://127.0.0.1:8005/docs`
 - **首个注册用户自动成为 admin**；之后注册为普通 user；未登录自动进访客模式
 - 数据库见 `.env`（默认 SQLite 零配置；MySQL 填 `DB_TYPE=mysql` + `DB_*`，库需 utf8mb4）
 
@@ -33,11 +33,11 @@ FastAPI + SQLAlchemy（MySQL/SQLite 双方言）· React18 + TypeScript + Vite �
 
 ```bash
 cd frontend
-M1_URL=http://127.0.0.1:8001 node scripts/e2e-m1-browser.mjs   # 认证链路
+M1_URL=http://127.0.0.1:8005 node scripts/e2e-m1-browser.mjs   # 认证链路
 node scripts/run-e2e.mjs                                        # m1/m2/m3 汇总 runner
 ```
 
-⚠️ e2e 一律用 `M*_URL` 指向本项目端口（本地 8001 / 生产 8002）；默认值 8000 是已下线原项目 ai-testflow，勿误用。
+⚠️ 全项目端口统一 **8005**（本地与生产一致）。e2e 脚本默认值已同步为 `8005`；临时换端口用 `M*_URL` 覆盖即可。
 
 ## 与 ai-testflow 的关系
 

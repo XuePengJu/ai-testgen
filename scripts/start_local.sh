@@ -4,12 +4,12 @@
 #
 # 环境说明：
 #   数据库：腾讯云测试机 MySQL（.env DB_*，远程直连，无需本地 Docker MySQL）
-#   端口：默认 8001（8000 归 ai-testgen 原项目）
+#   端口：默认 8005（8000 归 ai-testgen 原项目）
 #   配置源：.env（由 app/core/config.py 读取），可用 AITF_ENV_FILE 切换
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="/tmp/atgen-8001.log"
-PORT=8001
+LOG="/tmp/atgen-8005.log"
+PORT=8005
 
 # Python 解释器：项目 .venv（含 langchain / chromadb 等全套依赖）
 if [ -x "$ROOT/.venv/bin/python" ]; then

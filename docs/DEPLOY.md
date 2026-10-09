@@ -7,7 +7,7 @@
 
 架构：
 
-- **同源单服务**：FastAPI（uvicorn，127.0.0.1:8002）同时提供 REST API（`/api`）与前端静态页（`frontend/dist`）；
+- **同源单服务**：FastAPI（uvicorn，127.0.0.1:8005）同时提供 REST API（`/api`）与前端静态页（`frontend/dist`）；
   React 版走相对路径调用，天然同源，无需跨域配置。
 - **服务器**：阿里云 ECS（IP 与数据库端口见运维记录，**不写入公开文档**），宝塔面板统一运维（Nginx / MySQL），代码目录 `/root/ai-testgen`。后端以 **systemd 单元 `ai-testgen.service`** 常驻托管（不再使用宝塔 Python 项目管理器，旧 `ai-testflow` 项目已禁用）。
 - **数据库**：MySQL（同一服务器的远程库，端口见运维记录），本地开发可降级 SQLite（`app/core/db.py` 双方言）。
@@ -16,13 +16,13 @@
 | 域名 | 用途 | 链路 |
 | --- | --- | --- |
 | `agentest.vip` | 个人主页（静态站，页脚挂 ICP 备案号） | Nginx 静态 → `/www/wwwroot/agentest.vip/` |
-| `ai-testgen.agentest.vip` | 本平台（主域名） | Nginx 反代 → `127.0.0.1:8002` |
-| `ai.agentest.vip` | 本平台（同源别名，与主域名同指一份服务） | Nginx 反代 → `127.0.0.1:8002` |
+| `ai-testgen.agentest.vip` | 本平台（主域名） | Nginx 反代 → `127.0.0.1:8005` |
+| `ai.agentest.vip` | 本平台（同源别名，与主域名同指一份服务） | Nginx 反代 → `127.0.0.1:8005` |
 | `erp.agentest.vip` | 被测系统 DBERP（PHP 8.2） | Nginx 静态/PHP → `/www/wwwroot/dberp/public` |
 
 ```
-浏览器 ──HTTPS──> Nginx(443 · ai-testgen.agentest.vip) ──反代──> 阿里云:8002 (uvicorn)
-               （同源别名 ai.agentest.vip 同指 8002）           ├── /api/*   REST API
+浏览器 ──HTTPS──> Nginx(443 · ai-testgen.agentest.vip) ──反代──> 阿里云:8005 (uvicorn)
+               （同源别名 ai.agentest.vip 同指 8005）           ├── /api/*   REST API
                                                           ├── /health  健康检查
                                                           └── /        前端静态页(frontend/dist)
 浏览器 ──HTTPS──> Nginx(443 · erp.agentest.vip) ──> /www/wwwroot/dberp/public (PHP 8.2)
@@ -46,14 +46,14 @@ ssh -i <服务器密钥.pem> -o IdentitiesOnly=yes root@<服务器IP>
 
 ## 二、进程托管：systemd 单元 `ai-testgen.service`
 
-- 平台进程由 **systemd 单元 `/etc/systemd/system/ai-testgen.service`** 常驻托管（运行用户 root，端口 8002），用 `systemctl` 启停 / 查日志 / 开机自启：
+- 平台进程由 **systemd 单元 `/etc/systemd/system/ai-testgen.service`** 常驻托管（运行用户 root，端口 8005），用 `systemctl` 启停 / 查日志 / 开机自启：
   ```bash
   systemctl status ai-testgen.service      # 查状态
   systemctl restart ai-testgen.service     # 重启（日常发布用）
   systemctl enable ai-testgen.service      # 开机自启（已 enable）
   journalctl -u ai-testgen.service -n 100  # 看日志
   ```
-- **启动命令真源**：单元 `ExecStart=/root/ai-testgen/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002`，`WorkingDirectory=/root/ai-testgen`，读 `/root/ai-testgen/.env`。改端口 / 启动参数必须改单元文件后 `systemctl daemon-reload` 再 restart。
+- **启动命令真源**：单元 `ExecStart=/root/ai-testgen/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8005`，`WorkingDirectory=/root/ai-testgen`，读 `/root/ai-testgen/.env`。改端口 / 启动参数必须改单元文件后 `systemctl daemon-reload` 再 restart。
 - 旧的 `deploy/ai-testflow.service` 与宝塔 `ai-testflow_cmd.sh` 仅作历史遗留（旧项目已禁用），生产不再使用。
 
 > 依赖安装坑（venv 创建 / 首次部署备查）：
@@ -99,7 +99,7 @@ systemctl restart ai-testgen.service
 验证：
 
 ```bash
-curl -s http://127.0.0.1:8002/health   # → {"status":"ok","db_dialect":"mysql"}
+curl -s http://127.0.0.1:8005/health   # → {"status":"ok","db_dialect":"mysql"}
 curl -sk https://ai-testgen.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)'   # 应输出新 hash
 ```
 
@@ -126,14 +126,14 @@ curl -sk https://ai-testgen.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `systemctl restart` 没生效 / 端口没变 | 单元 `ExecStart` 烤死旧参数 | 改 `/etc/systemd/system/ai-testgen.service` 后 `systemctl daemon-reload` 再 restart；`ss -ltnp \| grep 8002` 确认新进程 |
-| 8002 被手工 uvicorn 占用 | 历史上手工起过进程 | 找到 pid 杀掉，再 `systemctl restart ai-testgen.service` |
+| `systemctl restart` 没生效 / 端口没变 | 单元 `ExecStart` 烤死旧参数 | 改 `/etc/systemd/system/ai-testgen.service` 后 `systemctl daemon-reload` 再 restart；`ss -ltnp \| grep 8005` 确认新进程 |
+| 8005 被手工 uvicorn 占用 | 历史上手工起过进程 | 找到 pid 杀掉，再 `systemctl restart ai-testgen.service` |
 | 页面白屏、控制台资源 404 | 浏览器缓存了旧 `index.html`，去请求已被新构建删除的旧 hash 文件 | 硬刷新（Cmd/Ctrl+Shift+R）或无痕窗口 |
 | `/api/health` 返回 404 | 健康检查端点是 **`/health`**，没有 `/api` 前缀 | 用 `/health` |
 | 直连服务器 IP 打不开 | 已 `return 444` 禁 IP 直访（预期行为） | 用域名访问 |
 | 证书续期失败 | server 级 `return 301` 劫持了 acme-challenge 路径 | 见第四节；跳转移入 `location /` |
 | `nginx -t` 报 duplicate default_server | 自定义 conf 重复声明 default_server | 删掉自定义 conf 里的 `default_server` |
-| 本地起 8002 后进程消失 | 沙箱里 `nohup ... &` 会随命令结束被回收 | 用后台常驻方式启动，或 `scripts/start_local.sh restart` |
+| 本地起 8005 后进程消失 | 沙箱里 `nohup ... &` 会随命令结束被回收 | 用后台常驻方式启动，或 `scripts/start_local.sh restart` |
 | `git pull` 卡住 / 超时 | 服务器连 GitHub 不稳 | 改用 3.1 的 SSH 直推，勿用 `git pull` |
 
 ---
@@ -145,9 +145,9 @@ curl -sk https://ai-testgen.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|
 | 后端 `.env` | `ENV` / `JWT_SECRET` | `production` / 强随机串 |
 | 后端 `.env` | `DATABASE_URL` | MySQL 连接串（留空则本地 SQLite） |
 | 后端 `.env` | `DASHSCOPE_API_KEY` | 阿里百炼 Key，留空且未开演示模式则报错 |
-| systemd | 单元 `ai-testgen.service` | 启停/日志/开机自启；启动命令真源见 `ExecStart`（uvicorn 8002） |
-| 宝塔网站 | `ai-testgen.agentest.vip` | Nginx 反代 → 127.0.0.1:8002，SSL 证书 + 强制 HTTPS（主域名） |
-| 宝塔网站 | `ai.agentest.vip` | Nginx 反代 → 127.0.0.1:8002（同源别名，复用同一后端） |
+| systemd | 单元 `ai-testgen.service` | 启停/日志/开机自启；启动命令真源见 `ExecStart`（uvicorn 8005） |
+| 宝塔网站 | `ai-testgen.agentest.vip` | Nginx 反代 → 127.0.0.1:8005，SSL 证书 + 强制 HTTPS（主域名） |
+| 宝塔网站 | `ai.agentest.vip` | Nginx 反代 → 127.0.0.1:8005（同源别名，复用同一后端） |
 | 宝塔网站 | `erp.agentest.vip` | PHP 8.2 站点，根目录 `/www/wwwroot/dberp/public` |
 | 宝塔网站 | `agentest.vip` | 静态站，根目录 `/www/wwwroot/agentest.vip` |
 | acme.sh | 续期 webroot | `/www/wwwroot/acme`（ai./erp. 子域 LE 证书） |
@@ -208,4 +208,4 @@ curl -sk https://ai-testgen.agentest.vip/ | grep -oE 'index-[A-Za-z0-9_-]+\.(js|
 - **2026-09-08 ~ 09-14**：cpolar 内网穿透（web/erp 两条隧道），因域名不稳定废弃。
 - **2026-09-15 ~ 09-22**：cloudflared 命名隧道（`ai.clickscope.in` / `erp.clickscope.in`）+ systemd 托管 uvicorn；因 Cloudflare 分配 IP 在国内部分网络被干扰（`ERR_CONNECTION_CLOSED`）且域名未备案，废弃。
 - **2026-09-23 ~ 09-29**：宝塔 Nginx 反代三域名全 HTTPS + 宝塔 Python 项目管理器托管 `ai-testflow`（端口 8000）+ gh-proxy 镜像拉取；因 `ai-testflow` 拆分为独立项目 `ai-testgen` 而退役（见下）。
-- **2026-09-30 起**：**当前方案**——项目更名 `ai-testgen`，代码目录 `/root/ai-testgen`，systemd `ai-testgen.service` 托管（端口 8002），SSH 直推发布；ICP 备案域名 `ai-testgen.agentest.vip` / `ai.agentest.vip` / `erp.agentest.vip` 全 HTTPS；IP 直访 444 断连；clickscope.in / cpolar / cloudflared / 宝塔 Python 项目管理器（本项目）全部退役。
+- **2026-09-30 起**：**当前方案**——项目更名 `ai-testgen`，代码目录 `/root/ai-testgen`，systemd `ai-testgen.service` 托管（端口 8005），SSH 直推发布；ICP 备案域名 `ai-testgen.agentest.vip` / `ai.agentest.vip` / `erp.agentest.vip` 全 HTTPS；IP 直访 444 断连；clickscope.in / cpolar / cloudflared / 宝塔 Python 项目管理器（本项目）全部退役。
