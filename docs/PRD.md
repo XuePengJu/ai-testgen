@@ -1,4 +1,4 @@
-# PRD：AI 测试工作流平台（ai-testflow）
+# PRD：AI 测试工作流平台（ai-testgen）
 
 | 文档信息 | <br />                                            |
 | ---- | ------------------------------------------------- |
@@ -483,10 +483,10 @@
 
 > 解决「自己调 API 看不到里面发了什么」：直连 httpx 只有返回文本，请求构造、重试、耗时、Token 用量全部不可见。
 
-- **落地**：`.env` 配置 `LANGSMITH_API_KEY` / `LANGSMITH_TRACING=true` / `LANGSMITH_PROJECT=ai-testflow`；适配层统一收敛模型构造，LangChain 自动打点，无需改调用方代码
-- **验证**：真实调用（魔搭）后经 LangSmith Client 查询到 `ChatOpenAI` run，status=success，trace 正常入库（smith.langchain.com → ai-testflow 项目）
+- **落地**：`.env` 配置 `LANGSMITH_API_KEY` / `LANGSMITH_TRACING=true` / `LANGSMITH_PROJECT=ai-testgen`；适配层统一收敛模型构造，LangChain 自动打点，无需改调用方代码
+- **验证**：真实调用（魔搭）后经 LangSmith Client 查询到 `ChatOpenAI` run，status=success，trace 正常入库（smith.langchain.com → ai-testgen 项目）
 - **说明**：上报依赖 smith.langchain.com 网络可达（本地直连或走代理）；上报失败时 LangSmith 静默重试/丢弃，不影响业务功能
-- **使用**：登录 smith.langchain.com 查看 ai-testflow 项目的每次调用 trace（模型/请求参数/流式耗时/Token/错误重试）
+- **使用**：登录 smith.langchain.com 查看 ai-testgen 项目的每次调用 trace（模型/请求参数/流式耗时/Token/错误重试）
 
 ### FR-W 多角色协作（产品 / 测试 / 开发）【V3.1 已上线】
 

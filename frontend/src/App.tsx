@@ -49,7 +49,7 @@ function normalizeView(v: string | null): View {
   return (VIEWS as string[]).includes(v || "") ? (v as View) : "main";
 }
 
-const GITHUB_REPO = "https://github.com/XuePengJu/ai-testflow";
+const GITHUB_REPO = "https://github.com/XuePengJu/ai-testgen";
 
 /** 个人主页（与平台同域名的站点入口） */
 const HOMEPAGE_URL = "https://agentest.vip/";

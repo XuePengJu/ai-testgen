@@ -113,15 +113,15 @@ _CONTENT_HEAD = (
     '<xmap-content xmlns="urn:xmind:xmap:xmlns:content:2.0" '
     'xmlns:fo="http://www.w3.org/1999/XSL/Format" xmlns:svg="http://www.w3.org/2000/svg" '
     'xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:xlink="http://www.w3.org/1999/xlink" '
-    'modified-by="ai-testflow" timestamp="{ts}" version="2.0">'
+    'modified-by="ai-testgen" timestamp="{ts}" version="2.0">'
 )
 
 _META = (
     '<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
     '<meta xmlns="urn:xmind:xmap:xmlns:meta:2.0" version="2.0">'
-    "<Author><Name>ai-testflow</Name><Email/><Org/></Author>"
+    "<Author><Name>ai-testgen</Name><Email/><Org/></Author>"
     "<Create><Time>{time_str}</Time></Create>"
-    "<Creator><Name>ai-testflow</Name><Version>1.0</Version></Creator>"
+    "<Creator><Name>ai-testgen</Name><Version>1.0</Version></Creator>"
     "</meta>"
 )
 
@@ -159,7 +159,7 @@ def export_xmind(cases: list[TestCase], out_path: str) -> None:
     ts = _ts()
     content_xml = (
         _CONTENT_HEAD.format(ts=ts)
-        + f'<sheet id="{_tid()}" modified-by="ai-testflow" timestamp="{ts}">'
+        + f'<sheet id="{_tid()}" modified-by="ai-testgen" timestamp="{ts}">'
         + root_xml
         + "<title>DBERP 测试用例</title>"
         + "</sheet></xmap-content>"

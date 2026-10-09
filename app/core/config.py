@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # ai-testflow/
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # ai-testgen/
 
 # 加载 .env（仅当环境变量未设置时填充，避免覆盖系统环境）
 # 多环境隔离：默认 .env（本地开发）；线上可设 AITF_ENV_FILE=/path/.env.server 指向另一份，
@@ -48,7 +48,7 @@ DB_PATH = _ROOT / "app.db"
 # 向量库目录（Chroma 持久化路径；AITF_ROOT_DIR 切换时随根目录走）
 VECTOR_DIR = _ROOT / "vectors"
 # 向量库 collection 名（单 collection + metadata 过滤，迁移 Qdrant 时换连接即可）
-VECTOR_COLLECTION = os.getenv("VECTOR_COLLECTION", "ai-testflow-kb")
+VECTOR_COLLECTION = os.getenv("VECTOR_COLLECTION", "ai-testgen-kb")
 
 # ============ 认证与多用户（V2） ============
 ENV = os.getenv("ENV", "dev")                       # dev / production
@@ -109,7 +109,7 @@ DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "ai-testflow")
+DB_NAME = os.getenv("DB_NAME", "ai-testgen")
 DB_CHARSET = os.getenv("DB_CHARSET", "utf8mb4")          # 中文/emoji 必须，否则乱码或写入报错
 # —— MySQL 连接池（规避 "MySQL server has gone away"）——
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))      # 常驻连接数
