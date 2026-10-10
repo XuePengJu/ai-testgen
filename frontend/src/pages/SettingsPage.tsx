@@ -4,7 +4,9 @@
  * - 入口：rail 底部用户名区域（V5.3 移除了「设置」按钮）
  * - guest：可查看账号信息（共享访客无密码）
  */
+import { User } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import PageHead from "../components/common/PageHead";
 import ProfileCard from "../components/settings/ProfileCard";
 
 export default function SettingsPage() {
@@ -12,6 +14,7 @@ export default function SettingsPage() {
   if (!me) return <div className="page-empty">请先登录</div>;
   return (
     <div className="page-wrap settings-page" data-testid="settings-page">
+      <PageHead icon={<User size={18} />} title="个人中心" sub="账号信息与登录密码" />
       <ProfileCard />
     </div>
   );

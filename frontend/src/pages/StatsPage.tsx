@@ -2,16 +2,20 @@
  * 使用统计页（V5.12 可观测性，仅 admin）：
  * - 概览卡：今日 / 累计的会话、消息、任务、LLM 调用、HTTP 请求、用户
  * - 趋势图：近 14 天业务量折线（echarts）+ HTTP 请求量折线
- * - 明细表：最近 LLM 调用（时间/模型/动作/成败/耗时/错误）
- * 数据源：/api/stats/overview、/api/stats/daily、/api/stats/llm/recent（均 admin-only）
+ * - 明细表：最近 LLM 调用（时间/模型/动作/成败/耗时/错误），点行看请求/返回详情（V5.14）
+ * 数据源：/api/stats/overview、/api/stats/daily、/api/stats/llm/recent、
+ *         /api/stats/llm/{id}（均 admin-only）
  */
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactECharts from "echarts-for-react";
 import {
-  MessageSquare, Library, Cpu, Activity, Users, RefreshCw, BarChart3,
+  MessageSquare, Library, Cpu, Activity, Users, RefreshCw, BarChart3, X,
 } from "lucide-react";
 import { apiJson, API } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
+import PageHead from "../components/common/PageHead";
+import { fmtCnFull } from "../utils/time";
 
 interface OverviewResp {
   today: {
@@ -41,6 +45,11 @@ interface UsageRow {
   prompt_chars: number; completion_chars: number; user_id: number; error: string;
 }
 
+interface UsageDetail extends UsageRow {
+  prompt_preview: string;
+  completion_preview: string;
+}
+
 function StatCard({ icon, num, label, cls = "blue" }: {
   icon: React.ReactNode; num?: number | string | null; label: string; cls?: string;
 }) {
@@ -57,12 +66,105 @@ function StatCard({ icon, num, label, cls = "blue" }: {
 
 const LINE_COLORS = { conversations: "#3b82f6", messages: "#8b5cf6", tasks: "#10b981", llm_calls: "#f59e0b" };
 
+/** LLM 调用详情弹窗（V5.14）：展示请求 / 返回内容快照。 */
+function LlmDetailModal({ id, onClose }: { id: number; onClose: () => void }) {
+  const [detail, setDetail] = useState<UsageDetail | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setDetail(null); setErr("");
+    apiJson<UsageDetail>(`${API}/stats/llm/${id}`)
+      .then((d) => { if (alive) setDetail(d); })
+      .catch((e) => { if (alive) setErr(String(e?.message || e)); });
+    return () => { alive = false; };
+  }, [id]);
+
+  // createPortal 挂到 body：避免受页面容器动画/滚动上下文影响，
+  // 保证 position:fixed 恒以视口定位（弹窗居中在当前窗口中间）
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000, background: "rgba(31,35,41,.45)",
+        display: "grid", placeItems: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card"
+        data-testid="llm-detail-modal"
+        style={{ width: "min(860px, 100%)", maxHeight: "80vh", overflowY: "auto", position: "relative" }}
+      >
+        <button
+          onClick={onClose}
+          aria-label="关闭详情"
+          style={{
+            position: "absolute", top: 12, right: 12, border: "none", background: "none",
+            cursor: "pointer", color: "#646a73", padding: 4,
+          }}
+        >
+          <X size={18} />
+        </button>
+        {err && <div style={{ color: "#ef4444", fontSize: 13 }}>加载失败：{err}</div>}
+        {!detail && !err && <div style={{ color: "#888", fontSize: 13 }}>加载中…</div>}
+        {detail && (
+          <>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10 }}>
+              调用详情 #{detail.id}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", fontSize: 12.5, color: "#646a73", marginBottom: 14 }}>
+              <span>{fmtCnFull(detail.created_at)}（北京时间）</span>
+              <span>模型：<b style={{ color: "#1f2329" }}>{detail.model}</b></span>
+              <span>槽位：{detail.slot}</span>
+              <span>动作：{detail.action}</span>
+              <span style={{ color: detail.ok ? "#10b981" : "#ef4444" }}>{detail.ok ? "成功" : "失败"}</span>
+              <span>耗时 {detail.latency_ms} ms</span>
+              <span>入/出 {detail.prompt_chars} / {detail.completion_chars} 字符</span>
+              <span>用户 ID：{detail.user_id || "平台级"}</span>
+            </div>
+            {!detail.ok && detail.error && (
+              <div style={{
+                background: "#ffece8", color: "#d83931", borderRadius: 8,
+                padding: "8px 12px", fontSize: 12.5, marginBottom: 12,
+              }}>
+                错误：{detail.error}
+              </div>
+            )}
+            <div style={{ fontWeight: 600, fontSize: 13, margin: "10px 0 6px" }}>请求内容（快照）</div>
+            <pre style={{
+              margin: 0, padding: 12, background: "#f5f6f7", borderRadius: 8,
+              fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+              maxHeight: 240, overflowY: "auto",
+            }}>
+              {detail.prompt_preview || "未记录快照（该条调用发生在快照功能上线前）"}
+            </pre>
+            <div style={{ fontWeight: 600, fontSize: 13, margin: "12px 0 6px" }}>模型返回（快照）</div>
+            <pre style={{
+              margin: 0, padding: 12, background: "#171a1f", color: "#d7e3f4", borderRadius: 8,
+              fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+              maxHeight: 300, overflowY: "auto",
+            }}>
+              {detail.completion_preview || (detail.ok ? "未记录快照（该条调用发生在快照功能上线前）" : "（失败调用无返回内容）")}
+            </pre>
+            <div style={{ fontSize: 11.5, color: "#8f959e", marginTop: 10 }}>
+              快照最长保留 4000 字符，仅用于排查；图片附件不入快照。
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function StatsPage() {
   const { ready, role } = useAuth();
   const [ov, setOv] = useState<OverviewResp | null>(null);
   const [daily, setDaily] = useState<DailyResp | null>(null);
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -114,22 +216,21 @@ export default function StatsPage() {
 
   return (
     <div className="page-wrap admin-page" data-testid="stats-page">
-      <div className="page-head" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <BarChart3 size={20} />
-        <h2 style={{ margin: 0, fontSize: 18 }}>使用统计</h2>
-        <span style={{ color: "var(--text-tertiary, #888)", fontSize: 12 }}>
-          时间口径为 UTC 日期
-        </span>
-        <button
-          className="btn btn-secondary"
-          style={{ marginLeft: "auto" }}
-          onClick={() => void loadAll()}
-          disabled={loading}
-          aria-label="刷新统计"
-        >
-          <RefreshCw size={14} className={loading ? "spin" : ""} /> 刷新
-        </button>
-      </div>
+      <PageHead
+        icon={<BarChart3 size={18} />}
+        title="使用统计"
+        sub="时间口径为北京时间"
+        ops={
+          <button
+            className="btn btn-secondary btn-md"
+            onClick={() => void loadAll()}
+            disabled={loading}
+            aria-label="刷新统计"
+          >
+            <RefreshCw size={14} className={loading ? "spin" : ""} /> 刷新
+          </button>
+        }
+      />
 
       {/* 今日 */}
       <section className="stats-row" data-testid="stats-today">
@@ -152,24 +253,24 @@ export default function StatsPage() {
         <StatCard icon={<BarChart3 size={22} />} num={ov?.total.requests} label="累计 API 请求" cls="cyan" />
       </section>
 
-      {/* 趋势图 */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginTop: 16 }}>
-        <div className="stat-card" style={{ gridColumn: "1 / -1" }}>
+      {/* 趋势图（间距交给 .page-wrap 的 --shell-gap 统一控制） */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.8fr) minmax(0, 1fr)", gap: "var(--shell-gap)" }}>
+        <div className="card" style={{ gridColumn: "1 / -1" }}>
           {trendOption ? (
             <ReactECharts option={trendOption} style={{ height: 320, width: "100%" }} />
           ) : <div className="page-empty">加载中…</div>}
         </div>
-        <div className="stat-card" style={{ gridColumn: "1 / 2" }}>
+        <div className="card" style={{ gridColumn: "1 / 2" }}>
           {reqOption && <ReactECharts option={reqOption} style={{ height: 220, width: "100%" }} />}
           <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>HTTP 请求量（/api，含轮询）</div>
         </div>
-        <div className="stat-card" style={{ gridColumn: "2 / 3" }}>
+        <div className="card" style={{ gridColumn: "2 / 3" }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>模型调用 TOP5（累计）</div>
           {(ov?.llm_by_model?.length ?? 0) === 0 && <div style={{ color: "#888", fontSize: 13 }}>暂无 LLM 调用记录</div>}
           {ov?.llm_by_model.map((m) => (
-            <div key={m.model} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.model}</span>
-              <b>{m.calls}</b>
+            <div key={m.model} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13, padding: "3px 0" }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={m.model}>{m.model}</span>
+              <b style={{ flex: "none" }}>{m.calls}</b>
             </div>
           ))}
           {ov?.total.llm_avg_ms != null && (
@@ -178,13 +279,15 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* 最近 LLM 调用明细 */}
-      <div className="stat-card" style={{ marginTop: 12, overflowX: "auto" }} data-testid="stats-llm-recent">
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>最近 LLM 调用（最新 50 条）</div>
+      {/* 最近 LLM 调用明细（点行查看请求 / 返回快照） */}
+      <div className="card" style={{ overflowX: "auto" }} data-testid="stats-llm-recent">
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>
+          最近 LLM 调用（最新 50 条，点击行查看详情）
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ textAlign: "left", color: "#888" }}>
-              <th style={{ padding: "4px 8px" }}>时间（UTC）</th>
+              <th style={{ padding: "4px 8px" }}>时间（北京时间）</th>
               <th style={{ padding: "4px 8px" }}>模型</th>
               <th style={{ padding: "4px 8px" }}>槽位</th>
               <th style={{ padding: "4px 8px" }}>动作</th>
@@ -199,8 +302,18 @@ export default function StatsPage() {
               <tr><td colSpan={8} style={{ padding: 10, color: "#888" }}>暂无记录（埋点自本版本起生效）</td></tr>
             )}
             {rows.map((r) => (
-              <tr key={r.id} style={{ borderTop: "1px solid var(--border, #eee)" }}>
-                <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{(r.created_at || "").replace("T", " ").slice(0, 19)}</td>
+              <tr
+                key={r.id}
+                onClick={() => setDetailId(r.id)}
+                data-testid={`llm-row-${r.id}`}
+                style={{
+                  borderTop: "1px solid var(--border, #eee)", cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "#f5f7fa"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                title="点击查看请求与返回内容"
+              >
+                <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{fmtCnFull(r.created_at)}</td>
                 <td style={{ padding: "4px 8px", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.model}</td>
                 <td style={{ padding: "4px 8px" }}>{r.slot}</td>
                 <td style={{ padding: "4px 8px" }}>{r.action}</td>
@@ -213,6 +326,7 @@ export default function StatsPage() {
           </tbody>
         </table>
       </div>
+      {detailId !== null && <LlmDetailModal id={detailId} onClose={() => setDetailId(null)} />}
     </div>
   );
 }

@@ -7,11 +7,13 @@
 - slot：text / vision（embedding 走独立通道，暂不埋点）
 - action：chat（一次性收集）/ stream（逐段流式）
 - tokens 不落库（流式响应拿不到 usage），以 prompt_chars / completion_chars 粗估用量
+- prompt_preview / completion_preview：请求与返回内容的截断快照（各 4000 字符），
+  供「使用统计 → 调用明细」点行查看详情（V5.14）；图片 base64 不入预览
 - 写入走独立 Session、静默失败：任何异常都不得影响主调用
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -31,4 +33,7 @@ class LLMUsage(Base):
     prompt_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # MySQL 5.7 严格模式不允许 TEXT 列带默认值 → nullable=True，空值由应用层补 ""
+    prompt_preview: Mapped[str] = mapped_column(Text, nullable=True)
+    completion_preview: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

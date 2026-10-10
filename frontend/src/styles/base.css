@@ -723,10 +723,13 @@ body {
 }
 
 /* ===== V5.5 测试用例库页（两栏：左分类面板 + 右列表区） ===== */
+/* V7.5：与 .page-wrap 统一（四边 --shell-pad / 内容 --shell-max 居中） */
 .cases-page {
-  display: flex; flex-direction: row; align-items: stretch; gap: 14px;
-  min-width: 0; min-height: 0;
-  background: #f5f7fa; padding: 16px 20px; overflow: hidden; box-sizing: border-box;
+  display: flex; flex-direction: row; align-items: stretch; gap: var(--shell-gap);
+  min-width: 0; min-height: 0; flex: 1; width: 100%;
+  max-width: calc(var(--shell-max) + var(--shell-pad) * 2);
+  margin: 0 auto;
+  background: #f5f7fa; padding: var(--shell-pad); overflow: hidden; box-sizing: border-box;
 }
 .cl-side {
   flex: none; width: 224px; min-height: 0; overflow-y: auto;
@@ -739,8 +742,9 @@ body {
   flex: 1; min-width: 0; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
 }
-.cl-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
-.cl-title { font-size: 16px; font-weight: 600; color: #1f2329; }
+/* V7.5：标题字号/行高与统一页头 .page-head 对齐 */
+.cl-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; min-height: 34px; }
+.cl-title { font-size: 17px; font-weight: 600; color: #1f2329; }
 .cl-count { font-size: 13px; font-weight: 400; color: #8f959e; margin-left: 2px; }
 .cl-toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 /* 概览条：点卡片联动筛选（全部/草稿/已评审=资产口径；生成中/失败=过程口径） */
@@ -1042,15 +1046,20 @@ button.cl-select:hover { background: #f5f7fa; }
 }
 .app-nav .nav-btn.admin-nav.on { background: #d83931; border-color: #d83931; }
 
-/* ---- 页面容器 ---- */
+/* ---- 页面容器（V7.5：统一走 --shell-* 令牌，见文件末尾「全站布局统一」） ---- */
 .page-wrap {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 28px 24px 60px;
-  display: flex; flex-direction: column; gap: 18px; align-items: center;
+  flex: 1; min-height: 0; overflow-y: auto;
+  width: 100%; padding: var(--shell-pad) var(--shell-pad) 48px;
+  display: flex; flex-direction: column; gap: var(--shell-gap); align-items: center;
 }
-.page-wrap > * { width: min(920px, 100%); }
+/* flex:0 0 auto —— 关键：.page-wrap 是 column flex，子项默认 flex-shrink:1，
+   内容一超高就被压扁（「最近 LLM 调用」卡被压到 42px、内部当滚动条）。
+   固定不收缩，溢出交给 .page-wrap 自己的 overflow-y:auto 滚动。 */
+.page-wrap > * { width: 100%; max-width: var(--shell-max); flex: 0 0 auto; }
 .page-empty { flex: 1; display: grid; place-items: center; color: #8f959e; font-size: 14px; }
 .set-card {
-  background: #fff; border: 1px solid #e5e6eb; border-radius: 12px; padding: 20px 22px;
+  background: #fff; border: 1px solid var(--card-border);
+  border-radius: var(--card-radius); padding: var(--card-pad);
 }
 .set-card h3 { margin: 0 0 4px; font-size: 16px; }
 .set-card h4 { margin: 0 0 2px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1208,14 +1217,19 @@ button.cl-select:hover { background: #f5f7fa; }
 .pool-row.cooling { border-color: #f3e0cb; background: #fffdf9; }
 .pool-hint { font-size: 12px; color: #a7abb3; margin-top: 8px; }
 
-/* ---- admin 统计 ---- */
+/* ---- admin 统计 ----
+   V7.5：列数由 auto-fit 自适应卡片数，不再写死 4 列 ——
+   之前 5 张卡塞进 4 列会让最后一张单独掉到第二行（孤卡）。 */
 .stats-row {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
-  width: min(920px, 100%) !important;
+  display: grid;
+  /* 等分铺满整行（auto-fit + 1fr）：左右边缘都与同页内容卡对齐，
+     不再"贴左不齐"（见文件末尾第 6 节）。下限 196px，窄屏放不下才换行。 */
+  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+  gap: var(--shell-gap); width: 100%;
 }
-@media (max-width: 860px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
 .stat-card {
-  background: #fff; border: 1px solid #e5e6eb; border-radius: 12px; padding: 18px 20px;
+  background: #fff; border: 1px solid var(--card-border);
+  border-radius: var(--card-radius); padding: var(--card-pad);
   display: flex; align-items: center; gap: 16px; text-align: left;
 }
 .stat-icon {
@@ -1492,7 +1506,12 @@ button.cl-select:hover { background: #f5f7fa; }
 .task-item.hist-sub .t-name { font-size: 12.5px; color: #4e5969; }
 
 /* ============ V4.0 知识库管理台 ============ */
-.kb-page { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 12px; align-content: start; padding: 12px; }
+/* V7.5：与 .page-wrap 统一（四边 --shell-pad / 内容 --shell-max 居中） */
+.kb-page {
+  display: grid; grid-template-columns: 260px minmax(0,1fr); gap: var(--shell-gap);
+  align-content: start; padding: var(--shell-pad) var(--shell-pad) 48px;
+  width: 100%; max-width: calc(var(--shell-max) + var(--shell-pad) * 2); margin: 0 auto;
+}
 .kb-side {
   width: 260px; flex: none; background: #fff; border: 1px solid var(--gray-200);
   border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
@@ -2351,3 +2370,92 @@ button.cl-select:hover { background: #f5f7fa; }
 .mem-conf-title { font-size: 12px; font-weight: 600; color: var(--danger-600, #dc2626); }
 .mem-conf-item { border: 1px solid var(--itf-line200, #e2e8f0); border-radius: 8px; padding: 8px 10px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
 .mem-foot { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 8px 2px 2px; }
+
+/* ==================================================================
+   V7.5 全站布局统一（unified-layout）
+   ------------------------------------------------------------------
+   问题：一级页面各用各的内容容器，切换左侧菜单时内容左边缘会「跳」——
+     · .app-main（AI 会话）  → 贴边 0px
+     · .cases-page（用例库） → 20px
+     · .kb-page（知识库）    → 12px
+     · .page-wrap（模型配置 / 用户管理 / 使用统计 / 个人中心）
+       → 内容按 920px 居中，宽屏下左侧白空 150px+，只有这一组页面「缩在中间」。
+   规范（所有一级页面共用同一套「内容容器」）：
+     · 外边距：四边 24px（--shell-pad）
+     · 内容区：上限 1200px（--shell-max）居中，超宽屏也不会把内容抻散
+     · 纵向节奏：区块之间 16px（--shell-gap）
+     · 卡片：圆角 12px / 1px #e5e6eb 边框 / 20px 内边距
+     · 页头：统一 .page-head（图标色块 + 17px 标题 + 灰色副标题 + 右侧操作）
+   效果：切换任意菜单，内容区左边缘恒为「侧栏 + 24px」，视觉不再跳。
+   ================================================================== */
+:root {
+  --shell-pad: 24px;
+  --shell-gap: 16px;
+  --shell-max: 1200px;
+  --card-radius: 12px;
+  --card-border: #e5e6eb;
+  --card-pad: 20px;
+}
+
+/* ---- 1. 统一页头：图标色块 + 标题 + 副标题 + 右侧操作 ---- */
+.page-head { display: flex; align-items: center; gap: 10px; min-height: 34px; flex: none; }
+.page-head .ph-ico {
+  width: 34px; height: 34px; border-radius: 10px; flex: none;
+  display: grid; place-items: center; background: #e8f3ff; color: #165dff;
+}
+.page-head h2 { margin: 0; font-size: 17px; font-weight: 600; color: #1f2329; line-height: 1.35; }
+.page-head .ph-sub { font-size: 12.5px; color: #8f959e; }
+.page-head .ph-ops { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* ---- 2. 补齐统计卡缺失的 cyan 图标色块（代码里引用了但 CSS 未定义 → 图标块透明） ---- */
+.stat-icon.cyan { background: #e6fffb; color: #0fc6c2; }
+
+/* ---- 3. AI 会话页：三栏整体收进统一容器，两块面板各自成卡 ----
+   与 .page-wrap / .cases-page / .kb-page 同一套：四边 24px + 内容 1200px 居中。
+   少了 max-width 会在超宽屏上「只有会话页贴着侧栏」，左边缘仍然不齐。 */
+.app-main-chat {
+  padding: var(--shell-pad); gap: var(--shell-gap);
+  width: 100%; max-width: calc(var(--shell-max) + var(--shell-pad) * 2); margin: 0 auto;
+}
+.app-main-chat > .side-panel,
+.app-main-chat > .chat-panel {
+  border: 1px solid var(--card-border); border-radius: var(--card-radius);
+}
+/* .side-panel 原本只描了右边（贴边形态），成卡后需四边描边 */
+.app-main-chat > .side-panel { border-right: 1px solid var(--card-border); }
+.app-main-chat > .chat-panel { background: #fff; }
+
+/* ---- 4. 切页淡入：内容已换、左边缘不动，再用一次轻微上浮收尾，降低突兀感 ---- */
+@keyframes shell-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.page-wrap, .cases-page, .kb-page, .app-main-chat { animation: shell-in .18s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .page-wrap, .cases-page, .kb-page, .app-main-chat { animation: none; }
+}
+
+/* ---- 5. 通用内容卡：与 .stat-card 同一视觉，但用块级布局 ----
+   .stat-card 是 flex 行布局（给 KPI 卡用），拿它当图表/列表容器时，
+   内部标题会被当成可压缩的 flex 项压成竖排文字。图表/列表一律用 .card。 */
+.card {
+  background: #fff; border: 1px solid var(--card-border);
+  border-radius: var(--card-radius); padding: var(--card-pad);
+}
+
+/* ---- 6. KPI 卡行不再按卡数封顶行宽（2026-10-10 修正「卡片没对齐」） ----
+   旧版 .cols-N 用 max-width + align-self:flex-start 把 KPI 行「贴左」，
+   超宽屏下同页内容卡是居中的（1920 下 L465）而 KPI 行贴左（L234）→ 左右不齐。
+   现改为：.stats-row 与其它内容卡共用 .page-wrap > * 的宽度（100% / 1200 居中），
+   卡片用 auto-fit + 1fr 铺满整行 → 左右边缘天然对齐。.cols-N 类已废弃。 */
+
+/* ---- 6.1 明细表滚动区：50 行全展开会把卡片撑到 ~1400px，
+   限高让表头吸附、内容内部滚动，页面节奏不被一条超长卡破坏 ---- */
+.table-scroll { max-height: 520px; overflow: auto; }
+.table-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+
+/* ---- 7. 细节节奏对齐：把各页面自己加的零散 margin 收回到统一节奏 ---- */
+/* 分段 Tab 的底距由 .page-wrap 的 --shell-gap 统一给，避免叠加成 30px */
+.seg-tabs { margin: 0; }
+/* 卡内小标题压到页头（17px）之下，层级更清晰 */
+.set-card h3 { font-size: 15px; }

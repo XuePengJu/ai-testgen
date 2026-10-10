@@ -6,9 +6,10 @@
  * V5.2（2026-09-25）：平台模型区整体迁出到「设置」页（admin 的「平台默认」Tab），本页不再含模型配置。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Users, UserX, ClipboardList, Trash2 } from "lucide-react";
+import { Shield, Users, UserX, ClipboardList, Trash2 } from "lucide-react";
 import { apiJson, API, toast } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
+import PageHead from "../components/common/PageHead";
 import UserTable from "../components/admin/UserTable";
 import type { AdminStats, AdminUserRow } from "../types";
 
@@ -59,6 +60,13 @@ export default function AdminPage() {
 
   return (
     <div className="page-wrap admin-page" data-testid="admin-page">
+      <PageHead
+        icon={<Shield size={18} />}
+        title="用户管理"
+        sub="注册用户、共享访客与账号治理"
+        ops={<span className="ph-sub">{users.length ? `共 ${users.length} 个账号` : ""}</span>}
+      />
+
       <section className="stats-row" data-testid="stats-cards">
         <div className="stat-card">
           <div className="stat-icon blue"><Users size={22} /></div>

@@ -328,6 +328,18 @@ def _ensure_columns() -> None:
     if not insp.has_table("memory_eval_runs"):
         Base.metadata.tables["memory_eval_runs"].create(bind=engine)
 
+    # V5.14：llm_usage 补内容快照两列（老库幂等迁移；create_all 不会给已有表加列）
+    # 注意 MySQL 5.7 严格模式 TEXT 列不能带 DEFAULT → 用 nullable 列，空值由应用层兜 ""
+    if insp.has_table("llm_usage"):
+        lu_cols = {c["name"] for c in sa_inspect(engine).get_columns("llm_usage")}
+        for _col in ("prompt_preview", "completion_preview"):
+            if _col not in lu_cols:
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE llm_usage ADD COLUMN {_col} TEXT NULL"))
+                    conn.commit()
+                    logger.info("已补列 llm_usage.%s（老库幂等迁移）", _col)
+
 
 def get_db():
     """FastAPI 依赖：提供数据库会话。"""

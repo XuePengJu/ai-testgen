@@ -23,9 +23,11 @@ _TIMEOUT = 180  # 生成用例常规超时（免费模型慢，放宽到 3 分�
 
 
 def _emit_usage(client, ok: bool, t0: float, prompt_chars: int = 0,
-                completion_chars: int = 0, error: str = "", action: str = "chat") -> None:
+                completion_chars: int = 0, error: str = "", action: str = "chat",
+                prompt_preview: str = "", completion_preview: str = "") -> None:
     """用量埋点出口（V5.12）：读取 client.usage_meta（user_id/slot），落一行 llm_usage。
 
+    V5.14：附带你 prompt_preview / completion_preview（内容快照，截断在 record_usage）。
     任何异常静默吞掉——统计绝不干扰主调用。mock 替身没有本函数，天然不计数。
     """
     try:
@@ -41,6 +43,8 @@ def _emit_usage(client, ok: bool, t0: float, prompt_chars: int = 0,
             prompt_chars=prompt_chars,
             completion_chars=completion_chars,
             error=error,
+            prompt_preview=prompt_preview,
+            completion_preview=completion_preview,
         )
     except Exception:  # noqa: BLE001
         pass
@@ -52,6 +56,38 @@ def _prompt_chars(messages: list) -> int:
         return sum(len(str(m.get("content") or "")) for m in messages if isinstance(m, dict))
     except Exception:  # noqa: BLE001
         return 0
+
+
+def _messages_preview(messages: list) -> str:
+    """请求消息序列化为可读文本快照（V5.14 详情弹窗用）。
+
+    - 每条消息一行「role: content」
+    - 图片 base64 替换为占位符（不入库大体积数据）
+    - 截断交给 record_usage（4000 字符）
+    """
+    try:
+        lines = []
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            role, content = str(m.get("role") or "?"), m.get("content")
+            if isinstance(content, str):
+                lines.append(f"{role}: {content}")
+            elif isinstance(content, list):
+                parts = []
+                for seg in content:
+                    if not isinstance(seg, dict):
+                        continue
+                    if seg.get("type") == "text":
+                        parts.append(str(seg.get("text") or ""))
+                    elif seg.get("type") == "image_url":
+                        parts.append("[图片附件]")
+                lines.append(f"{role}: {' '.join(parts)}")
+            else:
+                lines.append(f"{role}: {content!r}")
+        return "\n".join(lines)
+    except Exception:  # noqa: BLE001
+        return ""
 
 # 端点不认 enable_thinking 的记忆集合（base_url|model）
 _NO_THINKING_PARAM: set[str] = set()
@@ -187,10 +223,11 @@ class LangChainClient:
         if err:
             # V5.12：失败也计一次（错误分类语义与原实现一致，统一转 LLMError）
             _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
-                        error=err, action="chat")
+                        error=err, action="chat", prompt_preview=_messages_preview(messages))
             raise LLMError(err)
         _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
-                    completion_chars=len(full), action="chat")
+                    completion_chars=len(full), action="chat",
+                    prompt_preview=_messages_preview(messages), completion_preview=full)
         return _THINK_TAG_RE.sub("", full).strip()
 
     def generate(self, prompt: str, enable_thinking: bool | None = None) -> str:
@@ -249,7 +286,9 @@ class LangChainClient:
                 break
             # V5.12：正常完成计一次成功
             _emit_usage(self, True, t0, prompt_chars=_pchars,
-                        completion_chars=len(full), action="stream")
+                        completion_chars=len(full), action="stream",
+                        prompt_preview=_messages_preview(messages),
+                        completion_preview=full)
             recorded = True
             # 防御：正文里混入的 <think>/<thinking> 思考块清掉，保完整存档干净
             clean = _THINK_TAG_RE.sub("", full).strip()
@@ -258,7 +297,8 @@ class LangChainClient:
             # error 路径 / 调用方中途丢弃生成器（GeneratorExit）→ 计一次失败，防漏防重
             if not recorded:
                 _emit_usage(self, False, t0, prompt_chars=_pchars,
-                            error=err or "aborted", action="stream")
+                            error=err or "aborted", action="stream",
+                            prompt_preview=_messages_preview(messages))
 
     def describe_image(self, image_url: str, hint: str = "") -> str:
         """视觉理解：图片 + 指令 → 中文文字描述（两段式第一步）。"""
@@ -340,7 +380,7 @@ class _HttpxCompatClient:
             err = "响应缺少 choices[0].message.content"
         if err:
             _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
-                        error=err, action="chat")
+                        error=err, action="chat", prompt_preview=_messages_preview(messages))
             raise LLMError(err)
         if not isinstance(content, str):
             # 兼容部分厂商返回 content 为分段列表的形态
@@ -351,7 +391,8 @@ class _HttpxCompatClient:
             else:
                 content = str(content)
         _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
-                    completion_chars=len(content), action="chat")
+                    completion_chars=len(content), action="chat",
+                    prompt_preview=_messages_preview(messages), completion_preview=content)
         # 防御：部分厂商会把思考过程以 <think>/<thinking> 混入 content
         content = _THINK_TAG_RE.sub("", content).strip()
         return content
@@ -429,14 +470,17 @@ class _HttpxCompatClient:
                     return
                 break   # 正常跑完 → 不重试
             _emit_usage(self, True, t0, prompt_chars=_pchars,
-                        completion_chars=len(full), action="stream")
+                        completion_chars=len(full), action="stream",
+                        prompt_preview=_messages_preview(messages),
+                        completion_preview=full)
             recorded = True
             clean = _THINK_TAG_RE.sub("", full).strip()
             yield ("done", {"full": full, "clean": clean, "thinking": think_full})
         finally:
             if not recorded:
                 _emit_usage(self, False, t0, prompt_chars=_pchars,
-                            error=err or "aborted", action="stream")
+                            error=err or "aborted", action="stream",
+                            prompt_preview=_messages_preview(messages))
 
     def describe_image(self, image_url: str, hint: str = "") -> str:
         messages = [{

@@ -47,7 +47,8 @@ try {
   // 趋势图（echarts canvas）
   const charts = await page.locator('[data-testid="stats-page"] canvas').count();
   ok(`echarts 图表 ${charts} 个`, charts >= 2);
-  const trend = page.locator('[data-testid="stats-page"] .stat-card:has(canvas)').first();
+  // V7.5：图表/列表容器由 .stat-card 换成块级 .card（.stat-card 的 flex 行布局会把卡内标题压成竖排）
+  const trend = page.locator('[data-testid="stats-page"] .card:has(canvas)').first();
   await trend.screenshot({ path: `${OUT}/stats-trend.png` }).catch(() => {
     // canvas 卡片定位失败兜底：滚动后整页截一张
     return page.screenshot({ path: `${OUT}/stats-trend.png`, fullPage: true });

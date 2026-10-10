@@ -162,3 +162,34 @@ def llm_recent(
         }
         for r in rows
     ]
+
+
+@router.get("/llm/{call_id}")
+def llm_detail(
+    call_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """单条 LLM 调用详情（V5.14）：含请求 / 返回内容快照（各最多 4000 字符）。
+
+    快照自 V5.14 起记录；此前 的历史行两列为空串，前端按「未记录快照」提示。
+    """
+    r = db.get(LLMUsage, call_id)
+    if r is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="调用记录不存在")
+    return {
+        "id": r.id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "model": r.model,
+        "slot": r.slot,
+        "action": r.action,
+        "ok": bool(r.ok),
+        "latency_ms": r.latency_ms,
+        "prompt_chars": r.prompt_chars,
+        "completion_chars": r.completion_chars,
+        "user_id": r.user_id,
+        "error": r.error,
+        "prompt_preview": r.prompt_preview or "",
+        "completion_preview": r.completion_preview or "",
+    }

@@ -7,7 +7,9 @@
  * V5.4：单条配置下线，本页只渲染模型池卡片（个人池 / 平台池）。
  */
 import { useEffect, useState } from "react";
+import { Cpu } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import PageHead from "../components/common/PageHead";
 import { useSettingsStore } from "../store/settingsStore";
 import LLMSlotGroup from "../components/settings/LLMSlotGroup";
 import EffectiveBar from "../components/settings/EffectiveBar";
@@ -66,6 +68,13 @@ export default function ModelConfigPage() {
 
   return (
     <div className="page-wrap settings-page" data-testid="models-page">
+      <PageHead
+        icon={<Cpu size={18} />}
+        title="模型配置"
+        sub={role === "guest"
+          ? "共享访客使用平台默认模型（只读）"
+          : "个人模型池优先于平台默认，按优先级自动切换"}
+      />
       <EffectiveBar />
       {role !== "guest" ? (
         <>
