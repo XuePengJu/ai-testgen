@@ -1,0 +1,139 @@
+# 分层测试门禁：unit（秒级先行）→ api（进程内）→ ui（真实服务 + 浏览器）
+#
+# 对应《测试体系整合与前端 e2e 迁移方案 V1.4》§10 S5。
+#
+# 设计要点（与本地口径保持一致，差异只在「起服务的方式」）：
+#   - 本地唯一门禁命令 = `pytest -m "not visual and not demo"`（testpaths=tests，见 pytest.ini）。
+#     CI 拆成 3 个 job 只为并行提速，语义等同：unit / api / ui 三层的并集；
+#     visual（视觉基线）与 demo（演示录屏）两层**永不进门禁**。
+#   - 目标地址唯一真源 = AITF_BASE_URL（不使用 pytest-playwright 的 --base-url）。
+#   - 仓库不含 .env（被 .gitignore 忽略），因此 CI 里 config 走 DB_TYPE 默认值 sqlite。
+#     这里显式声明 DB_TYPE / ADMIN_BOOTSTRAP，避免以后有人误加 .env 后 CI 去连外部库。
+#   - ui job 的账号前提：
+#       ① migrate_v2.py 用 ADMIN_BOOTSTRAP 预置 admin（否则「首个注册用户 = admin」会让下一步的
+#          `test` 变成 admin，与 tests/ui/conftest.py 的 admin 起始态默认值 admin/Admin@123 不符）；
+#       ② 再注册 `test`（普通用户），即 chat / testcase / knowledge 等模块的默认起始态 test/test1234。
+#     对现网库跑时改用 AITF_E2E_USER / AITF_E2E_USER_PWD / AITF_E2E_ADMIN / AITF_E2E_PWD 显式指定，
+#     不要为 CI 单独改 conftest 默认值。
+#   - 不要用 start.sh 起服务：它会自建 .venv 并再装一遍依赖，与 job 里的系统解释器错位。
+#     这里直接用同一个解释器跑 migrate + uvicorn，保证「装依赖的解释器 = 跑服务/跑测试的解释器」。
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: unit（纯函数单测，秒级）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 跑 unit（零依赖，应秒级返回）
+        run: mkdir -p reports && pytest tests/unit -m unit --junitxml=reports/unit-junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-junit
+          path: reports/unit-junit.xml
+          retention-days: 7
+
+  api:
+    name: api（进程内接口 + DB 集成）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # conftest 强制 SQLite（不碰外部 MySQL）；如需把 DB 集成单列 job，可改跑 `-m integration`
+      - name: 跑 api
+        run: mkdir -p reports && pytest tests/api --junitxml=reports/api-junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-junit
+          path: reports/api-junit.xml
+          retention-days: 7
+
+  ui:
+    name: ui（浏览器端到端）
+    runs-on: ubuntu-latest
+    needs: [unit, api]
+    env:
+      AITF_BASE_URL: http://127.0.0.1:8005
+      AITF_E2E_VIDEO: "off"          # CI 省空间：不录屏（本地默认 on）；断言与 HUD 不受影响
+      DB_TYPE: sqlite
+      ADMIN_BOOTSTRAP: Admin@123     # 与 tests/ui/conftest.py 的 admin 起始态默认值对齐
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建前端 dist（server 夹具会校验 dist 不早于 src）
+        run: npm --prefix frontend ci && npm --prefix frontend run build
+
+      - name: 安装 chromium
+        run: playwright install --with-deps chromium
+
+      - name: 建表 + 预置 admin（SQLite，幂等）
+        run: python scripts/migrate_v2.py
+
+      - name: 起后端并等待就绪
+        run: |
+          nohup uvicorn main:app --host 127.0.0.1 --port 8005 >/tmp/backend.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8005/ >/dev/null; then echo "后端就绪（第 ${i} 次探测）"; exit 0; fi
+            sleep 2
+          done
+          echo "后端在 120s 内未就绪，日志如下：" >&2
+          cat /tmp/backend.log >&2
+          exit 1
+
+      - name: 预置 test 账户（chat / testcase / knowledge 默认起始态）
+        # 未带 Bearer token → crypto 中间件明文直通，无需前端加密逻辑
+        run: |
+          curl -sS -o /dev/null -w "register test -> HTTP %{http_code}\n" \
+            -X POST "$AITF_BASE_URL/api/auth/register" \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"test","password":"test1234","email":"test@example.com"}'
+
+      # 门禁口径与本地 `pytest -m "not visual and not demo"` 一致。
+      # 注意不能写成 `-m e2e_ui`：视觉用例同时挂了 e2e_ui + visual 两个 marker，会被一并选中。
+      - name: 跑 ui e2e（门禁口径：排除 visual / demo）
+        run: mkdir -p reports && pytest tests/ui -m "not visual and not demo" --junitxml=reports/ui-junit.xml
+
+      - name: 失败时打印后端日志
+        if: failure()
+        run: cat /tmp/backend.log || true
+
+      - name: 上传报告与失败产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-artifacts
+          path: |
+            reports/ui-junit.xml
+            reports/e2e-report.json
+            reports/e2e-artifacts/
+          retention-days: 7
