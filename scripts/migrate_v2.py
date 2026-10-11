@@ -31,6 +31,27 @@ def ensure_task_user_id() -> None:
     print("[ok]   tasks.user_id 已添加")
 
 
+def ensure_task_bigtext() -> None:
+    """tasks 三列 JSON 由 TEXT 升到 LONGTEXT（幂等：已是 longtext 则跳过）；仅 MySQL 执行。
+
+    背景：MySQL TEXT 上限 = 65,535 字节，utf8mb4 中文用例 JSON 很容易超过 →
+    落库 DataError(1406) 溢出。partial_cases_json 曾因此把整个生成任务拖成 failed；
+    cases_json / report_json 同样有风险，故三列一并升级（模型侧用 _BIGTEXT 声明）。
+    """
+    if engine.dialect.name != "mysql":
+        print(f"[skip] 非 MySQL 方言（{engine.dialect.name}），跳过 LONGTEXT 迁移")
+        return
+    insp = inspect(engine)
+    types = {c["name"]: str(c["type"]).lower() for c in insp.get_columns("tasks")}
+    for col in ("cases_json", "partial_cases_json", "report_json"):
+        if "longtext" in types.get(col, ""):
+            print(f"[skip] tasks.{col} 已是 longtext")
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE tasks MODIFY COLUMN {col} LONGTEXT"))
+        print(f"[ok]   tasks.{col} → LONGTEXT")
+
+
 def ensure_admin(db) -> User:
     admin = db.query(User).filter(User.role == "admin").first()
     if admin:
@@ -78,6 +99,7 @@ def move_flat_files(admin: User) -> None:
 def main() -> None:
     init_db()  # 建新表（users / guest_creation_log / clean_log）
     ensure_task_user_id()
+    ensure_task_bigtext()
     db = SessionLocal()
     try:
         admin = ensure_admin(db)

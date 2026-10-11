@@ -18,6 +18,7 @@ import logging
 import re
 
 from app.services.doc_extract import extract_text_safe
+from app.services.langchain_client import call_generate
 from app.services.pipeline_lib import lib_parse
 from src.models.testcase import RequirementUnit
 from src.utils import jsonx
@@ -135,7 +136,8 @@ def _ai_parse_business(text: str, client) -> tuple[list[RequirementUnit], str, s
         return [], "", ""
     prompt = _AI_PARSE_PROMPT.replace("{text}", text.strip()[:6000])
     try:
-        raw = client.generate(prompt)
+        # 结构化抽取（只要 JSON）强制关思考：开思考会拖慢数倍且正文可能被截断成空
+        raw = call_generate(client, prompt)
     except Exception:
         return [], "", ""
     return _parse_ai_output(raw)

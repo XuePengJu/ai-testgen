@@ -4,6 +4,7 @@
 """
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from app.models.task import Task, StepLog
 from app.models.user import User
 from app.services import llm_service
 from app.services import llm_pool
+from app.services import prompt_service
 from app.services.pipeline_lib import cases_to_json
 from src.models.testcase import ensure_case_ids, ensure_compound_titles, RequirementUnit
 from app.workflow.agents import (
@@ -88,6 +90,49 @@ def _apply_requirement_naming(db, task: Task, details: str) -> None:
             pass
 
 
+def _commit_progress(db, step: StepLog, task: Task, accumulated: list, *,
+                     cur: int, total: int, label: str, cases_so_far: int,
+                     snapshot_ok: bool) -> bool:
+    """提交一条生成进度（顺带「尽力而为」地刷新过程态快照）；返回更新后的 snapshot_ok。
+
+    V1.3-fix 不变式：无论快照落库是否成功，本函数**绝不抛出**，且**绝不**把 Session 留在
+    PendingRollback 状态 —— 过程态快照只是 UI 预览，没有杀死整个任务的权力。
+
+    两条分支：
+      ① 写「已产出用例」快照 + commit（仅 snapshot_ok 且 accumulated 非空时）；失败即降级：
+         rollback、停用快照、清掉脏属性（否则下次 commit 会再次 flush 触发同一错误）；
+      ② 纯提交 step.progress —— 即使快照已停用也必须执行，UI 实时进度不能因快照失败而消失。
+    """
+    progress_text = (f"正在为第 {cur}/{total} 个子任务生成用例"
+                     f"（{label}）· 已生成 {cases_so_far} 条")
+    step.progress = progress_text
+
+    if snapshot_ok and accumulated:
+        try:
+            task.partial_cases_json = cases_to_json(accumulated)
+            db.commit()
+            return snapshot_ok
+        except Exception:  # noqa: BLE001  快照是尽力而为，任何失败都不许外泄
+            snapshot_ok = False
+            logger.warning("过程态快照落库失败，已停用快照（不影响生成）", exc_info=True)
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            # rollback 使上面的内存赋值失效；脏属性还会在下次 commit 再次触发 flush → 一并清掉并重挂进度
+            task.partial_cases_json = None
+            step.progress = progress_text
+
+    try:
+        db.commit()
+    except Exception:  # noqa: BLE001  纯进度提交自身失败也必须回滚，绝不留 PendingRollback
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+    return snapshot_ok
+
+
 def run_task(task_id: str) -> None:
     """执行整个工作流。异常时把任务标记为 failed 并记录错误步骤。"""
     db = SessionLocal()
@@ -143,6 +188,16 @@ def run_task(task_id: str) -> None:
             ).scalars().all()
         }
 
+        # ---- V1.3-fix：生成模板覆盖必须在**主线程预取** ----
+        # 生成模板的加载发生在 generator 的 ThreadPoolExecutor 工作线程里
+        # （case_generator._load_template → _build_prompt）；若在工作线程里查询**共享的
+        # 请求级 Session**，多个线程会同时发查询 → 抛
+        # `InvalidRequestError: This session is provisioning a new connection; concurrent
+        # operations are not permitted`（_progress 的 db.commit() 归还连接时窗口最大）。
+        # 故在进入并发之前（此处仍是单线程、单 Session），一次性取出该用户全部 gen 模板
+        # 覆盖，工作线程只读内存 dict、零 DB 访问。
+        tpl_cache = prompt_service.get_gen_overrides(db, task.user_id)
+
         for name, title, fn, key in STEPS:
             # 断点续跑：parser 已完成 → 从 StepLog.input_summary 恢复 units，跳过执行
             if name == "parser" and name in completed_steps:
@@ -172,18 +227,35 @@ def run_task(task_id: str) -> None:
                     if vision_note:
                         summary = f"{summary}{vision_note}"
                 elif name == "generator":
-                    def _progress(cur: int, total: int, unit_name: str, cases_so_far: int) -> None:
-                        """每个测试点完成 → 更新 StepLog.progress（前端轮询实时可见）。"""
-                        step.progress = (
-                            f"正在为第 {cur}/{total} 个子任务生成用例"
-                            f"（{unit_name}）· 已生成 {cases_so_far} 条"
-                        )
-                        db.commit()
+                    # V1.3：子任务已并发生成，多个线程会同时回进度。共用一个请求级 Session，
+                    # 必须把「写 StepLog 进度 + 累积用例 + commit」整体串行化，否则并发 commit 出错。
+                    progress_lock = threading.Lock()
+                    accumulated: list = []
+                    # V1.3-fix：过程态快照是「尽力而为」的 UI 预览，没有杀死任务的权力。
+                    # 首次落库失败（如 TEXT 溢出 DataError）即停用快照，并保证 Session 一定被回滚到
+                    # 可用态（progress_cb 的异常会被 generator 的 _emit 吞掉，没人替我们 rollback）。
+                    snapshot_ok = True
 
-                    # V5.10：任务属主在「提示词」弹窗自定义的生成模板 → 注入优先于内置
+                    def _progress(cur: int, total: int, unit_name: str,
+                                  cases_so_far: int, new_cases=None) -> None:
+                        """每个子任务完成 → 更新进度（+ 尽力而为地刷新「已产出用例」快照）。"""
+                        nonlocal snapshot_ok
+                        with progress_lock:
+                            if new_cases:
+                                accumulated.extend(new_cases)
+                            snapshot_ok = _commit_progress(
+                                db, step, task, accumulated,
+                                cur=cur, total=total, label=unit_name,
+                                cases_so_far=cases_so_far, snapshot_ok=snapshot_ok)
+
+                    # V5.10：任务属主在「提示词」弹窗自定义的生成模板 → 注入优先于内置。
+                    # V1.3-fix：本函数运行在 generator 的**工作线程**里，**绝不允许**触碰
+                    # 共享 Session —— 只读主线程预取的 `tpl_cache`（key→content），零 DB 访问。
+                    # kind 归一化与 prompt_service.get_gen_override 完全一致：
+                    # api/action → api，其余 → req。
                     def _template_loader(kind: str, role: str) -> str | None:
-                        from app.services import prompt_service
-                        return prompt_service.get_gen_override(db, task.user_id, kind, role)
+                        norm = "api" if kind in ("api", "action") else "req"
+                        return tpl_cache.get(prompt_service.gen_key(norm, role))
 
                     out, summary, details = fn(
                         data["units"], llm_client, model_desc, _progress,
@@ -204,6 +276,9 @@ def run_task(task_id: str) -> None:
                 if name == "parser":
                     _apply_requirement_naming(db, task, details)
             except Exception as e:  # noqa: BLE001
+                # 失败可见性（V1.3-fix）：此前这里一句日志都没有 → 排查全靠 DB 反查（「黑盒」主因之一）。
+                # logger.exception 落在 except 上下文内，自动带上完整堆栈。
+                logger.exception("工作流步骤失败 task=%s step=%s", task_id, name)
                 try:
                     db.rollback()
                 except Exception:  # noqa: BLE001
@@ -215,9 +290,12 @@ def run_task(task_id: str) -> None:
                 try:
                     db.commit()
                     task.status = "failed"
+                    # 失败也是终态：落 finished_at / duration_ms，否则界面显示 0.0s / 空白
+                    task.finished_at = utcnow()
+                    task.duration_ms = round((time.time() - t0) * 1000, 1)
                     db.commit()
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.exception("失败状态落库失败 task=%s step=%s", task_id, name)
                 return
 
         cases = data["cases"]
@@ -226,6 +304,8 @@ def run_task(task_id: str) -> None:
         task.status = "completed"
         task.cases_count = len(cases)
         task.cases_json = cases_to_json(cases)
+        # V1.3：过程态快照功成身退（前端改用正式 cases_json，避免两处数据源并存）
+        task.partial_cases_json = None
         task.report_json = json.dumps(data["report"], ensure_ascii=False)
         task.finished_at = utcnow()
         task.duration_ms = round((time.time() - t0) * 1000, 1)

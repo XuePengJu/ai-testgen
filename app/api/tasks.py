@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, delete, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.api.deps import get_current_user
 from app.core import task_queue
@@ -61,6 +61,24 @@ def _parse_cases(cases_json: str | None) -> list[dict]:
         return []
 
 
+def _parse_partial(cases_json: str | None) -> list[dict]:
+    """解析 running 期「已产出用例」预览快照（V1.3）。
+
+    与 `_parse_cases` 的差异：**不补 TC 编号**。最终编号是整条工作流收尾时统一重排的
+    （去重会让序号整体前移），预览阶段先编号反而会让用户看到数字来回跳。
+    仅补齐 `动作 -> 预期` 复合标题，保证预览与最终列表的标题口径一致。
+    """
+    if not cases_json:
+        return []
+    try:
+        obj = json.loads(cases_json)
+        if not isinstance(obj, list):
+            return []
+        return ensure_compound_titles(obj)
+    except (ValueError, TypeError):
+        return []
+
+
 def _resolve_conversation(db: Session, task: Task) -> str | None:
     """兜底解析任务所属会话 id（历史任务 conversation_id 为空时使用）。
 
@@ -93,19 +111,34 @@ def _resolve_conversation(db: Session, task: Task) -> str | None:
     return conv.id
 
 
-def _has_auto_script(db: Session, task: Task) -> bool:
+def _has_auto_script(db: Session, task: Task, user_dir: str | None = None) -> bool:
     """M2 执行引擎：任务目录 auto/ 下是否已生成自动化脚本（存在 test_*.py）。
 
     列表/详情都会调用，必须轻量：只 glob 一次，不做任何 IO 之外的解析。
+    user_dir 可由列表接口批量预取后传入，避免每行回查 users 表（N+1）。
     """
-    auto_dir = OUTPUT_DIR / task.user_data_dir(db) / task.id / "auto"
+    if user_dir is None:
+        user_dir = task.user_data_dir(db)
+    auto_dir = OUTPUT_DIR / user_dir / task.id / "auto"
     return auto_dir.is_dir() and any(auto_dir.glob("test_*.py"))
 
 
-def _to_out(db: Session, task: Task, include_cases: bool = False) -> TaskOut:
-    steps = db.execute(
-        select(StepLog).where(StepLog.task_id == task.id).order_by(StepLog.id)
-    ).scalars().all()
+def _to_out(db: Session, task: Task, include_cases: bool = False,
+            steps: list[StepLog] | None = None,
+            user_dir: str | None = None) -> TaskOut:
+    # 列表接口批量预取 steps / user_dir 后传入（各 1 条批查询）；
+    # 单任务端点不传则原地查询，行为不变。
+    if steps is None:
+        steps = db.execute(
+            select(StepLog).where(StepLog.task_id == task.id).order_by(StepLog.id)
+        ).scalars().all()
+    if user_dir is None:
+        user_dir = task.user_data_dir(db)
+    # V1.3：过程态预览的返回口径 —— 详情接口一律返回；列表接口只对**活跃任务**
+    # （running/pending，通常同时只有 1~2 个）返回。原因：刷新页面后会话里的消息
+    # 挂的是轻量 task（loadConversation 不取 cases/partial_cases），只靠列表轮询
+    # 才能继续喂预览；而 cases 仍严格只在详情接口返回，避免历史任务撑大列表 payload。
+    include_partial = include_cases or task.status in ("running", "pending")
     return TaskOut(
         id=task.id, name=task.name, kind=task.kind, source_type=task.source_type,
         status=task.status, review_status=task.review_status or "draft",
@@ -113,7 +146,7 @@ def _to_out(db: Session, task: Task, include_cases: bool = False) -> TaskOut:
         formats=task.formats, roles=task.roles or '["qa"]',
         category_id=task.category_id,
         parent_task_id=task.parent_task_id,
-        has_auto=_has_auto_script(db, task),
+        has_auto=_has_auto_script(db, task, user_dir),
         conversation_id=task.conversation_id,
         created_at=task.created_at, finished_at=task.finished_at,
         steps=[
@@ -127,6 +160,8 @@ def _to_out(db: Session, task: Task, include_cases: bool = False) -> TaskOut:
         ],
         # 仅详情接口为 True：77 条用例 ≈ 几十 KB，列表页不背这个 payload
         cases=_parse_cases(task.cases_json) if include_cases else [],
+        # V1.3：生成过程快照（活跃任务与详情接口都带，见上面的 include_partial 说明）
+        partial_cases=_parse_partial(task.partial_cases_json) if include_partial else [],
     )
 
 
@@ -240,11 +275,37 @@ def list_tasks(db: Session = Depends(get_db),
                user: User = Depends(get_current_user),
                all: bool = False):
     """只返回当前用户的任务；admin 可带 ?all=true 看全部。"""
-    stmt = select(Task)
+    stmt = select(Task).options(
+        # 列表接口裁掉三个 longtext 大字段：cases_json/report_json 列表永远不用，
+        # partial_cases_json 仅活跃任务（running/pending，通常 1~2 个）需要——defer 后
+        # 由 _to_out 按需懒加载。实测远程库下 56 行全量拉取是 /tasks 4s+ 的主因。
+        defer(Task.cases_json),
+        defer(Task.partial_cases_json),
+        defer(Task.report_json),
+    )
     if not (user.role == "admin" and all):
         stmt = stmt.where(Task.user_id == user.id)
     tasks = db.execute(stmt.order_by(Task.created_at.desc())).scalars().all()
-    return [_to_out(db, t) for t in tasks]
+    # 批量预取（消 N+1）：steps 一次 IN 查询按任务分组；users 的 data_dir 一次 IN 查询缓存
+    steps_map: dict[str, list[StepLog]] = {}
+    task_ids = [t.id for t in tasks]
+    if task_ids:
+        for s in db.execute(
+            select(StepLog).where(StepLog.task_id.in_(task_ids)).order_by(StepLog.id)
+        ).scalars().all():
+            steps_map.setdefault(s.task_id, []).append(s)
+    user_dirs: dict[int, str] = {}
+    user_ids = {t.user_id for t in tasks if t.user_id}
+    if user_ids:
+        user_dirs = {
+            u.id: (u.data_dir or "")
+            for u in db.execute(select(User).where(User.id.in_(user_ids))).scalars().all()
+        }
+    return [
+        _to_out(db, t, steps=steps_map.get(t.id, []),
+                user_dir=user_dirs.get(t.user_id, "") if t.user_id else "")
+        for t in tasks
+    ]
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
@@ -332,6 +393,7 @@ def retry_task(task_id: str,
     t.status = "pending"
     t.cases_count = 0
     t.cases_json = None
+    t.partial_cases_json = None  # V1.3：重试即清空上一轮的生成过程快照
     t.report_json = None
     t.duration_ms = 0
     t.finished_at = None

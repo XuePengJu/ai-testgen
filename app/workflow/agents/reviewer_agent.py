@@ -10,6 +10,7 @@ import logging
 from collections import Counter
 
 from app.services import llm_service
+from app.services.langchain_client import call_chat
 from src.models.testcase import TestCase, CaseType, Priority, align_step_expectations
 from src.utils import jsonx
 
@@ -140,7 +141,9 @@ def run_reviewer(cases: list[TestCase], client=None) -> tuple[dict, str]:
                     total=total,
                     description=desc,
                 )
-                raw = client.chat([{"role": "user", "content": fill_prompt}], temperature=0.5, max_tokens=2048)
+                # 结构化抽取（只要 JSON）强制关思考，见 langchain_client.call_chat
+                raw = call_chat(client, [{"role": "user", "content": fill_prompt}],
+                                temperature=0.5, max_tokens=2048)
                 # D 修复：改用 jsonx 配对解析（旧贪婪正则在「数组后另有 [1]」「值内含 ]」时
                 # 必然失败并被 except 静默吞掉，表现为「缺维度但一直没补上」且无日志）
                 arr = jsonx.find_dict_list(raw or "", jsonx.CASE_KEYS)

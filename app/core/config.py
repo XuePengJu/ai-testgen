@@ -155,6 +155,14 @@ AITF_MEMORY_PURGE_GRACE_DAYS = int(os.getenv("AITF_MEMORY_PURGE_GRACE_DAYS", "30
 # ============ V7.2 条目混合检索 + V7.3 评估地基 ============
 AITF_MEMORY_HYBRID_ENABLED = os.getenv("AITF_MEMORY_HYBRID_ENABLED", "1") == "1"    # 条目混合检索总开关（关=只走文档级记忆检索，可回滚）
 AITF_MEMORY_ITEM_TOPK = int(os.getenv("AITF_MEMORY_ITEM_TOPK", "3"))                # 条目检索注入条数（MMR 去冗余后取前 N）
+# 长期记忆档案制（整理改造）：开=所有会话提炼滚动合并进单一「长期记忆档案」
+# （source_key mem:profile:{uid}），不再每会话生成一份「会话记忆 · 原始消息片段」
+# 文档；日报同时降级为纯索引（只存日期+会话标题清单，不复制正文）。
+# 关=旧机制（每会话一份 conv 文档 + 日报逐字聚合），运维回滚口径。
+AITF_MEMORY_PROFILE_MODE = os.getenv("AITF_MEMORY_PROFILE_MODE", "1") == "1"
+# 提炼门槛：transcript 有效字符数低于该值（且档案为空）时不提炼——纯寒暄/单轮
+# 操作型会话不值得生成记忆，防「把我说的每句话都存进去」。
+AITF_MEMORY_MIN_CHARS = int(os.getenv("AITF_MEMORY_MIN_CHARS", "80"))
 AITF_MEMORY_W_VEC = float(os.getenv("AITF_MEMORY_W_VEC", "0.5"))                    # RRF 稠密通道权重（1-w 为 BM25 权重；mock embedding 自动置 0）
 AITF_MEMORY_RRF_K = int(os.getenv("AITF_MEMORY_RRF_K", "60"))                       # RRF 常数 K（名次→分数的平滑因子）
 AITF_MEMORY_MMR_LAMBDA = float(os.getenv("AITF_MEMORY_MMR_LAMBDA", "0.7"))          # MMR λ（相关性 vs 去冗余的权衡）
@@ -163,6 +171,10 @@ AITF_MEMORY_BM25_MAX_DOCS = int(os.getenv("AITF_MEMORY_BM25_MAX_DOCS", "2000")) 
 AITF_MEMORY_LOG_SAMPLE = float(os.getenv("AITF_MEMORY_LOG_SAMPLE", "0.2"))          # 检索埋点采样率 [0,1]（V7.3 地基）
 AITF_MEMORY_VEC_BACKFILL_ON_BOOT = os.getenv("AITF_MEMORY_VEC_BACKFILL_ON_BOOT", "0") == "1"  # 存量条目向量回填开关（默认关，走 scripts/backfill_memory_vectors.py）
 AITF_RAG_CONTEXT_LIMIT = int(os.getenv("AITF_RAG_CONTEXT_LIMIT", "4000"))           # RAG 参考上下文拼装长度上限（字符）
+# 引用去噪：会话记忆/日报类文档（Knowledge.source_key 前缀 mem:conv: / mem:daily:）
+# 在单次 RAG 引用里的 distinct 文档数上限（0=不限）。这类文档是会话提炼稿，正文
+# 薄、余弦虚高，且日报与会话记忆内容重复——不限量时会把业务库真命中整个挤出引用。
+AITF_RAG_MAX_MEM_DOCS = int(os.getenv("AITF_RAG_MAX_MEM_DOCS", "2"))                # 引用中记忆类文档 distinct 上限
 
 # ============ V7.4 文档级混合检索（BM25 + 向量 + RRF）============
 AITF_DOC_HYBRID_ENABLED = os.getenv("AITF_DOC_HYBRID_ENABLED", "1") == "1"      # 文档混合检索总开关；0=直调向量检索(逐字节回滚)
@@ -173,6 +185,11 @@ AITF_DOC_HYBRID_GUEST   = os.getenv("AITF_DOC_HYBRID_GUEST", "1") == "1"        
 # V7.4.1 引用多样性：同一篇文档最多贡献 N 条命中（0=不限）。条目通道有 MMR 去冗余，
 # 文档通道原先没有 —— 实测 6 条引用里 3 条来自同一篇文档，白占 top_k 名额。
 AITF_DOC_MAX_PER_DOC    = int(os.getenv("AITF_DOC_MAX_PER_DOC", "2"))           # 单文档命中上限；超限的跳过继续取后面的，仍能凑满 top_k
+# 引用去噪：文档级融合相对阈值。融合分 RRF 是名次制（满分 1/(K+1)≈0.0164），
+# 原先融合后没有任何门槛，BM25 只要蹭上一个词（"用例"、"补充"）就能进引用，
+# 个人记忆库的薄文档（会话记忆/日报）大量弱命中挤占引用名额。改为与条目级
+# V7.4 同口径的相对阈值：cutoff = best_rrf * ratio，砍掉长尾蹭词命中。
+AITF_DOC_MIN_SCORE_RATIO = float(os.getenv("AITF_DOC_MIN_SCORE_RATIO", "0.35"))  # 文档融合相对阈值：cutoff = best_rrf * ratio；0=关闭
 
 # V7.4 记忆检索阈值修复：旧值 0.01 过高（RRF 满分仅 1/(K+1)=0.0164），
 # 导致任何 1 年以上的条目无论排第几都被过滤 —— 改为相对阈值主控。

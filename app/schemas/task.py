@@ -42,6 +42,10 @@ class TaskOut(BaseModel):
     # 结构化用例列表（仅详情接口包含；列表接口为 []）。
     # 由 api/tasks.py 的 _to_out(include_cases=True) 注入，避免大 payload 拖慢列表渲染。
     cases: list[dict[str, Any]] = []
+    # V1.3 生成过程可见性：running 期「已产出用例」预览（每完成一个子任务就增长）。
+    # 不做 TC 编号（最终编号在收尾统一重排），仅补 `动作 -> 预期` 复合标题。
+    # 同样只在详情接口返回（列表接口为 []）。
+    partial_cases: list[dict[str, Any]] = []
 
     class Config:
         from_attributes = True

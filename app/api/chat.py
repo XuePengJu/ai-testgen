@@ -238,9 +238,10 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
     P4 检索语义：
     - kb_ids 只表达业务库勾选；个人记忆库不入勾选列表，此处强制并入检索范围
       （get_personal_kb_id 只读查询，绝不建库），无权限/无配置的库静默剔除
-    - 个人库与业务库两次检索后按 chunk_id 去重（记忆优先），citations 每项
-      增加 personal 布尔标记（chunk 来自个人库文档 = True），前端可高亮
-      「来自记忆」的引用
+    - 个人库与业务库两次检索后按 chunk_id + 归一化正文前 120 字去重（记忆优先），
+      citations 每项增加 personal 布尔标记（chunk 来自个人库文档 = True），前端可
+      高亮「来自记忆」的引用；会话记忆/日报类提炼稿文档（source_key mem:conv:/
+      mem:daily:）受 AITF_RAG_MAX_MEM_DOCS distinct 上限约束，防薄文档挤占引用
     - mock 向量时检索质量差，真实 Embedding Key 配置后自然增强
     """
     if not user:
@@ -283,17 +284,62 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             item_hits = hybrid_search(db, user, body.message)
         except Exception as e:  # noqa: BLE001
             logger.warning("条目混合检索失败（降级跳过）：%s", e)
-    # 三路汇总去重：条目记忆优先（排前且占用 chunk_id 去重名额），其次个人库文档，最后业务库
+    # 三路汇总去重：条目记忆优先（排前且占用 chunk_id 去重名额），其次个人库文档，最后业务库。
+    # 引用去噪：除 chunk_id 外再按「归一化正文前 120 字」去重——记忆日报聚合了各
+    # 会话记忆文档的「关键结论」原文，同一内容在向量库里存了两份，chunk_id 不同
+    # 但正文相同，只按 chunk_id 去重会成对出现白占引用名额（实测 6 条引用里
+    # [1]/[4]、[2]/[5] 两对重复）。
     seen: set[str] = set()
+    content_seen: set[str] = set()
     hits: list[dict] = []
     for h in item_hits + mem_hits + biz_hits:
         cid = h.get("id") or ""
         if cid in seen:
             continue
         seen.add(cid)
+        ckey = " ".join((h.get("document") or "").split())[:120]
+        if ckey and ckey in content_seen:
+            continue
+        if ckey:
+            content_seen.add(ckey)
         hits.append(h)
     if not hits:
         return "", []
+
+    # 批量查 title + source_key（引用跳转定位 + 记忆文档识别，一次查询避免 N+1）。
+    # mem:conv: / mem:daily: 前缀 = 会话记忆/日报提炼稿（store.py / chat_memory.py）。
+    titles: dict[str, str] = {}
+    mem_kids: set[str] = set()
+    kids = {(h.get("metadata") or {}).get("knowledge_id") or "" for h in hits}
+    kids.discard("")
+    if kids:
+        rows = db.execute(
+            select(Knowledge.id, Knowledge.title, Knowledge.source_key).where(
+                Knowledge.id.in_(kids))
+        ).all()
+        for _kid, _title, _sk in rows:
+            if _title:
+                titles[_kid] = _title
+            if (_sk or "").startswith(("mem:conv:", "mem:daily:")):
+                mem_kids.add(_kid)
+
+    # 引用去噪：记忆类文档 distinct 上限（AITF_RAG_MAX_MEM_DOCS，0=不限）。
+    # 提炼稿正文薄、余弦虚高，且三路汇总恒排业务库前面——不限量时业务库真
+    # 命中整个被挤出引用与上下文。按文档计数：限额内文档的 chunk 全保留，
+    # 超限文档整篇跳过（条目级记忆 memitem 不受影响，语义槽位本就不同）。
+    max_mem = config.AITF_RAG_MAX_MEM_DOCS
+    if max_mem > 0 and mem_kids:
+        allowed: set[str] = set()
+        filtered: list[dict] = []
+        for h in hits:
+            kid = (h.get("metadata") or {}).get("knowledge_id") or ""
+            if kid and kid in mem_kids and kid not in allowed:
+                if len(allowed) >= max_mem:
+                    continue
+                allowed.add(kid)
+            filtered.append(h)
+        hits = filtered
+
     parts, cites = [], []
     for h in hits:
         meta = h.get("metadata") or {}
@@ -318,17 +364,11 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
             # V7.2：条目记忆命中时携带条目 id（前端跳转记忆面板定位用；文档命中为空串）
             "memory_item_id": (meta.get("memory_item_id") or ""),
         })
-    # 批量补 Wiki/文档条目标题（引用跳转定位用），一次查询避免 N+1
-    kids = {c["knowledge_id"] for c in cites if c["knowledge_id"]}
-    if kids:
-        rows = db.execute(
-            select(Knowledge.id, Knowledge.title).where(Knowledge.id.in_(kids))
-        ).all()
-        titles = dict(rows)
-        for c in cites:
-            t = titles.get(c["knowledge_id"])
-            if t:
-                c["doc_title"] = t
+    # 补 Wiki/文档条目标题（引用跳转定位用；已在前面批量查出，这里仅回填）
+    for c in cites:
+        t = titles.get(c["knowledge_id"])
+        if t:
+            c["doc_title"] = t
     out = "【知识库检索参考（用于回答，未命中业务规则时如实说明）】\n" + "\n\n---\n\n".join(parts)
     # V7.3 地基：检索埋点（独立 Session + 采样率 + 任何异常静默，绝不影响主链路）
     try:

@@ -13,6 +13,7 @@ import logging
 from collections import Counter
 
 from app.core.config import AITF_ALLOW_DEMO
+from app.services.langchain_client import call_generate
 
 from src.models.testcase import (
     TestCase,
@@ -206,7 +207,8 @@ def run_supplement(
             instruction=instruction or "补充更多测试用例",
         )
         try:
-            raw = client.generate(prompt)
+            # 结构化抽取（只要 JSON）强制关思考，见 langchain_client.call_generate
+            raw = call_generate(client, prompt)
             new_cases = _parse_llm(raw)
         except Exception:  # noqa: BLE001
             if AITF_ALLOW_DEMO:

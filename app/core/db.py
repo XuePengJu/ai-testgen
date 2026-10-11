@@ -110,6 +110,9 @@ def _ensure_columns() -> None:
     # V5.5 用例库资产化：评审状态（draft/reviewed），存量任务统一默认草稿
     if "review_status" not in cols:
         alters.append("ADD COLUMN review_status VARCHAR(16) NOT NULL DEFAULT 'draft'")
+    # V1.3 生成过程可见性：running 期已产出用例快照（TEXT 不能带 DEFAULT，MySQL 1101）
+    if "partial_cases_json" not in cols:
+        alters.append("ADD COLUMN partial_cases_json TEXT")
     if alters:
         with engine.connect() as conn:
             for a in alters:

@@ -11,7 +11,9 @@
   - enable_thinking：端点不认 → 400 自动去掉参数重试一次 + 记忆端点
   - content 分段列表归一；<think>/<thinking> 标签清理
 """
+import inspect
 import json
+import os
 import re
 import time
 
@@ -20,6 +22,22 @@ from langchain.chat_models import init_chat_model
 from openai import APIStatusError, APIConnectionError, APITimeoutError
 
 _TIMEOUT = 180  # 生成用例常规超时（免费模型慢，放宽到 3 分钟）
+
+# 空正文（HTTP 成功但正文一个字符都没有）的统一错误文案。
+# 空正文不能当成功返回 ""：调用方（用例生成）只会「白等一个来回 + 静默 0 条」，
+# 用户侧表现为任务卡住。这里重试同一请求，仍为空则抛错交给模型池切换候选。
+EMPTY_CONTENT_MSG = "模型返回空内容"
+
+
+def _empty_retry_times() -> int:
+    """空正文重试次数（AITF_LLM_EMPTY_RETRY，默认 1；0 = 关闭）；非法值回落默认。"""
+    try:
+        return max(0, int(os.getenv("AITF_LLM_EMPTY_RETRY", "") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+_EMPTY_RETRY = _empty_retry_times()
 
 
 def _emit_usage(client, ok: bool, t0: float, prompt_chars: int = 0,
@@ -143,6 +161,40 @@ class LLMError(Exception):
     """LLM 调用失败（网络 / 鉴权 / 响应异常）。"""
 
 
+def _accepts_kwarg(fn, name: str) -> bool:
+    """被调用的方法是否接受名为 name 的关键字参数。
+
+    测试替身 / 极简注入客户端常只保留必需参数，直接传关键字会 TypeError；
+    不可内省的对象一律按「不支持」处理，回落原样调用。
+    """
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if name in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def call_generate(client, prompt: str) -> str:
+    """调 client.generate，并（在客户端支持时）显式关闭思考。
+
+    结构化抽取（「只输出 JSON」）开思考会让耗时可翻数倍、思考 token 挤占 max_tokens
+    把正文截断成空。工作流里的需求拆解 / 用例生成 / 迭代补充都属于此类。
+    用户对话侧不走本函数（那边由 should_deep_think 按需判定）。
+    """
+    if _accepts_kwarg(client.generate, "enable_thinking"):
+        return client.generate(prompt, enable_thinking=False)
+    return client.generate(prompt)
+
+
+def call_chat(client, messages: list, **kwargs) -> str:
+    """调 client.chat，并（在客户端支持时）显式关闭思考。kwargs 原样透传。"""
+    if _accepts_kwarg(client.chat, "enable_thinking"):
+        return client.chat(messages, enable_thinking=False, **kwargs)
+    return client.chat(messages, **kwargs)
+
+
 def _norm_content(content) -> str:
     """chunk.content 归一化为 str：兼容部分厂商返回分段列表的形态。"""
     if isinstance(content, str):
@@ -205,30 +257,47 @@ class LangChainClient:
         （与本次改动前完全一致）；True/False = 显式要求端点开/关思考。
         结构化抽取类调用点应传 False —— 实测思考会让正文退化成"摘要式少量结果"
         且耗时翻数倍（见 docs/项目1-模型池与思考控制执行方案-V1.0.md §1）。
+
+        V1.3 空正文兜底：HTTP 成功但正文为空时**同一请求立即重发** _EMPTY_RETRY 次，
+        仍为空才抛 LLMError（交给模型池切换候选）。原实现直接返回 ""，
+        调用方只能白等一个来回并静默产出 0 条用例。
+        真错误（鉴权 / 限流 / 网络）不重试，直接抛错换候选更划算。
         """
         t0 = time.perf_counter()
-        full, err = "", ""
-        try:
-            for chunk in self._build_model(temperature, max_tokens, timeout,
-                                           enable_thinking).stream(messages):
-                full += _norm_content(chunk.content)
-        except LLMError as e:
-            err = str(e)
-        except APIStatusError as e:
-            err = f"HTTP {e.status_code}：{_err_detail(e)}"
-        except (APIConnectionError, APITimeoutError) as e:
-            err = f"网络错误：{e.__class__.__name__}"
-        except Exception as e:  # noqa: BLE001
-            err = f"{e.__class__.__name__}: {str(e)[:200]}"
-        if err:
-            # V5.12：失败也计一次（错误分类语义与原实现一致，统一转 LLMError）
-            _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
-                        error=err, action="chat", prompt_preview=_messages_preview(messages))
-            raise LLMError(err)
-        _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
-                    completion_chars=len(full), action="chat",
-                    prompt_preview=_messages_preview(messages), completion_preview=full)
-        return _THINK_TAG_RE.sub("", full).strip()
+        _pchars = _prompt_chars(messages)
+        _preview = _messages_preview(messages)
+        last_err = ""
+        attempt = 0
+        while True:
+            full, err = "", ""
+            try:
+                for chunk in self._build_model(temperature, max_tokens, timeout,
+                                               enable_thinking).stream(messages):
+                    full += _norm_content(chunk.content)
+            except LLMError as e:
+                err = str(e)
+            except APIStatusError as e:
+                err = f"HTTP {e.status_code}：{_err_detail(e)}"
+            except (APIConnectionError, APITimeoutError) as e:
+                err = f"网络错误：{e.__class__.__name__}"
+            except Exception as e:  # noqa: BLE001
+                err = f"{e.__class__.__name__}: {str(e)[:200]}"
+
+            clean = _THINK_TAG_RE.sub("", full).strip()
+            if not err and clean:
+                _emit_usage(self, True, t0, prompt_chars=_pchars,
+                            completion_chars=len(full), action="chat",
+                            prompt_preview=_preview, completion_preview=full)
+                return clean
+            last_err = err or EMPTY_CONTENT_MSG
+            if err or attempt >= _EMPTY_RETRY:
+                break
+            attempt += 1
+
+        # V5.12：失败也计一次（错误分类语义与原实现一致，统一转 LLMError）
+        _emit_usage(self, False, t0, prompt_chars=_pchars,
+                    error=last_err, action="chat", prompt_preview=_preview)
+        raise LLMError(last_err)
 
     def generate(self, prompt: str, enable_thinking: bool | None = None) -> str:
         """与旧 BailianClient.generate 同签名：prompt 进、文本出。"""
@@ -362,6 +431,7 @@ class _HttpxCompatClient:
 
     def chat(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
              timeout: float = _TIMEOUT, enable_thinking: bool | None = None) -> str:
+        """httpx 直连版 chat；空正文兜底与 LangChainClient.chat 同一套语义。"""
         payload = {
             "model": self.model, "messages": messages,
             "temperature": temperature, "max_tokens": max_tokens,
@@ -370,32 +440,46 @@ class _HttpxCompatClient:
         if enable_thinking is not None and ep_key not in _NO_THINKING_PARAM:
             payload["enable_thinking"] = bool(enable_thinking)
         t0 = time.perf_counter()
-        err = ""
-        try:
-            data = _post_chat(self.base_url, self.api_key, payload, timeout=timeout)
-            content = data["choices"][0]["message"]["content"]
-        except LLMError as e:
-            err = str(e)
-        except (KeyError, IndexError, TypeError):
-            err = "响应缺少 choices[0].message.content"
-        if err:
-            _emit_usage(self, False, t0, prompt_chars=_prompt_chars(messages),
-                        error=err, action="chat", prompt_preview=_messages_preview(messages))
-            raise LLMError(err)
-        if not isinstance(content, str):
-            # 兼容部分厂商返回 content 为分段列表的形态
-            if isinstance(content, list):
-                content = "".join(
-                    seg.get("text", "") for seg in content if isinstance(seg, dict)
-                )
+        _pchars = _prompt_chars(messages)
+        _preview = _messages_preview(messages)
+        last_err = ""
+        attempt = 0
+        while True:
+            content, err = None, ""
+            try:
+                data = _post_chat(self.base_url, self.api_key, payload, timeout=timeout)
+                content = data["choices"][0]["message"]["content"]
+            except LLMError as e:
+                err = str(e)
+            except (KeyError, IndexError, TypeError):
+                err = "响应缺少 choices[0].message.content"
+
+            if not err:
+                if not isinstance(content, str):
+                    # 兼容部分厂商返回 content 为分段列表的形态
+                    if isinstance(content, list):
+                        content = "".join(
+                            seg.get("text", "") for seg in content if isinstance(seg, dict)
+                        )
+                    else:
+                        content = str(content)
+                # 防御：部分厂商会把思考过程以 <think>/<thinking> 混入 content
+                clean = _THINK_TAG_RE.sub("", content).strip()
+                if clean:
+                    _emit_usage(self, True, t0, prompt_chars=_pchars,
+                                completion_chars=len(content), action="chat",
+                                prompt_preview=_preview, completion_preview=content)
+                    return clean
+                last_err = EMPTY_CONTENT_MSG
             else:
-                content = str(content)
-        _emit_usage(self, True, t0, prompt_chars=_prompt_chars(messages),
-                    completion_chars=len(content), action="chat",
-                    prompt_preview=_messages_preview(messages), completion_preview=content)
-        # 防御：部分厂商会把思考过程以 <think>/<thinking> 混入 content
-        content = _THINK_TAG_RE.sub("", content).strip()
-        return content
+                last_err = err
+            if err or attempt >= _EMPTY_RETRY:
+                break
+            attempt += 1
+
+        _emit_usage(self, False, t0, prompt_chars=_pchars,
+                    error=last_err, action="chat", prompt_preview=_preview)
+        raise LLMError(last_err)
 
     def generate(self, prompt: str, enable_thinking: bool | None = None) -> str:
         return self.chat([{"role": "user", "content": prompt}],

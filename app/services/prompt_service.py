@@ -152,6 +152,33 @@ def get_gen_override(db: Session, user_id: int | None, kind: str, role: str) -> 
     return get_override(db, user_id, gen_key(norm, role))
 
 
+def get_gen_overrides(db: Session, user_id: int | None) -> dict[str, str]:
+    """一次查询取该用户**全部**生成模板覆盖，返回 {key: content}。
+
+    用途（V1.3-fix）：工作流生成步骤的模板加载发生在 generator 的 ThreadPoolExecutor
+    工作线程里（case_generator._load_template → _build_prompt），若每个线程各自在
+    **共享的请求级 Session** 上查询，会在并发下抛
+    `InvalidRequestError: This session is provisioning a new connection; concurrent
+    operations are not permitted`。故改为：调用方在**进入并发之前**（主线程、单 Session）
+    用本函数一次性预取成内存 dict，工作线程随后只读该 dict、零 DB 访问。
+
+    语义与 get_gen_override 对齐：`db`/`user_id` 为 None → `{}`；空白 content（`strip()`
+    为空）视为「无覆盖」并过滤掉；只取生成模板键（不含 chat 键）。
+    """
+    if db is None or user_id is None:
+        return {}
+    gen_keys = [k for k, meta in ALL_KEYS.items() if meta["group"] == "gen"]
+    if not gen_keys:
+        return {}
+    rows = db.execute(
+        select(PromptOverride).where(
+            PromptOverride.user_id == user_id,
+            PromptOverride.key.in_(gen_keys),
+        )
+    ).scalars().all()
+    return {r.key: r.content for r in rows if r.content and r.content.strip()}
+
+
 def default_of(key: str) -> str:
     item = ALL_KEYS.get(key)
     if item is None:

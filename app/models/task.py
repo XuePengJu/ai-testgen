@@ -4,9 +4,17 @@ from datetime import datetime
 from app.core.utils import utcnow
 
 from sqlalchemy import String, Integer, Text, DateTime, Float, ForeignKey, Boolean
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+
+# 大文本列：默认（SQLite 等）仍为 TEXT；仅在 MySQL 方言用 LONGTEXT。
+# 背景：MySQL 的 TEXT 上限 = 65,535 **字节**，utf8mb4 下中文每字 3 字节 → 4 万余字符的用例
+# JSON ≈ 130KB，直接溢出（DataError 1406 "Data too long"）。partial_cases_json（过程态快照）
+# 曾因此把整个生成任务拖成 failed；cases_json（最终产物）/ report_json 同样有溢出风险，
+# 故三列统一升级。SQLite 侧 with_variant 不生效、仍是 TEXT，不影响现有测试。
+_BIGTEXT = Text().with_variant(mysql.LONGTEXT(), "mysql")
 
 
 class Task(Base):
@@ -35,8 +43,12 @@ class Task(Base):
     input_summary: Mapped[str | None] = mapped_column(Text, default="")
     cases_count: Mapped[int | None] = mapped_column(Integer, default=0)
     duration_ms: Mapped[float | None] = mapped_column(Float, default=0.0)
-    cases_json: Mapped[str | None] = mapped_column(Text, default="[]")
-    report_json: Mapped[str | None] = mapped_column(Text, default="{}")
+    cases_json: Mapped[str | None] = mapped_column(_BIGTEXT, default="[]")
+    # V1.3 生成过程可见性：running 期每完成一个子任务就累积写入的「已产出用例」快照。
+    # 与 cases_json 的区别：cases_json 只在整条工作流收尾时一次性写入（最终产物，含统一编号）；
+    # 本列是过程态预览，收尾成功后清空。列表接口不返回，避免拖慢列表。
+    partial_cases_json: Mapped[str | None] = mapped_column(_BIGTEXT, nullable=True)
+    report_json: Mapped[str | None] = mapped_column(_BIGTEXT, default="{}")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 

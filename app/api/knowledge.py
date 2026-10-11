@@ -531,12 +531,24 @@ async def delete_document(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """删除文档（软删除记录 + 清分块与向量）。仅创建者或 admin。"""
+    """删除文档（软删除记录 + 清分块与向量）。仅创建者或 admin。
+
+    记忆类文档（source_key mem:conv:*）删除时**联动清会话整理水位**——否则
+    下次整理按 source_key 幂等找到软删行会把它复活（2026-10-11 实测踩坑）。
+    """
     doc = _get_doc(db, doc_id)
     kb = _get_kb(db, doc.knowledge_base_id)
     _ensure_manage(user, kb)
     delete_document_vectors(db, doc_id)
     doc.deleted_at = _now()
+    try:
+        from app.services.memory.store import unlink_memory_doc
+        unlink_memory_doc(db, doc)
+    except Exception as e:  # noqa: BLE001  联动失败不阻断删除本身
+        logging.getLogger(__name__).warning("记忆文档删除联动失败 %s: %s", doc_id, e)
+        db.rollback()
+        doc = _get_doc(db, doc_id)
+        doc.deleted_at = _now()
     db.commit()
     return {"ok": True}
 
@@ -589,6 +601,11 @@ async def batch_delete_documents(
         try:
             delete_document_vectors(db, doc_id)   # 内部会 commit（清分块 + 向量）
             doc.deleted_at = _now()
+            try:
+                from app.services.memory.store import unlink_memory_doc
+                unlink_memory_doc(db, doc)        # 记忆文档联动清会话水位（同事务）
+            except Exception as e:  # noqa: BLE001
+                logger.warning("批量删除联动清水位失败 %s: %s", doc_id, e)
             db.commit()
             deleted += 1
         except Exception as e:  # noqa: BLE001  单条失败不影响其余

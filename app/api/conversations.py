@@ -103,13 +103,19 @@ def _parse_citations(raw: str | None) -> list[dict] | None:
         return None
 
 
-def _to_out(db: Session, c: Conversation, include_messages: bool = False) -> ConversationOut:
-    count = db.execute(
-        select(func.count()).select_from(Message).where(Message.conversation_id == c.id)
-    ).scalar_one()
-    task_count = db.execute(
-        select(func.count()).select_from(Task).where(Task.conversation_id == c.id)
-    ).scalar_one()
+def _to_out(db: Session, c: Conversation, include_messages: bool = False,
+            counts: tuple[int, int] | None = None) -> ConversationOut:
+    """counts=(message_count, task_count) 可由列表接口批量聚合后传入（消 N+1）；
+    不传则按单会话两条 count 查询（单会话端点行为不变）。"""
+    if counts is None:
+        count = db.execute(
+            select(func.count()).select_from(Message).where(Message.conversation_id == c.id)
+        ).scalar_one()
+        task_count = db.execute(
+            select(func.count()).select_from(Task).where(Task.conversation_id == c.id)
+        ).scalar_one()
+    else:
+        count, task_count = counts
     out = ConversationOut(
         id=c.id, title=c.title, created_at=c.created_at, updated_at=c.updated_at,
         message_count=count, task_count=task_count, messages=[],
@@ -157,7 +163,25 @@ def list_conversations(mode: str | None = None,
     if kb_id:
         stmt = stmt.where(Conversation.kb_id == kb_id)
     rows = db.execute(stmt.order_by(Conversation.updated_at.desc())).scalars().all()
-    return [_to_out(db, c) for c in rows]
+    # 批量聚合（消 N+1）：两条 GROUP BY 替代每行 2 条 count
+    conv_ids = [c.id for c in rows]
+    msg_counts: dict[str, int] = {}
+    task_counts: dict[str, int] = {}
+    if conv_ids:
+        msg_counts = dict(db.execute(
+            select(Message.conversation_id, func.count())
+            .where(Message.conversation_id.in_(conv_ids))
+            .group_by(Message.conversation_id)
+        ).all())
+        task_counts = dict(db.execute(
+            select(Task.conversation_id, func.count())
+            .where(Task.conversation_id.in_(conv_ids))
+            .group_by(Task.conversation_id)
+        ).all())
+    return [
+        _to_out(db, c, counts=(msg_counts.get(c.id, 0), task_counts.get(c.id, 0)))
+        for c in rows
+    ]
 
 
 @router.get("/{conv_id}", response_model=ConversationOut)
@@ -389,7 +413,11 @@ def _delete_conversation_knowledge(db: Session, conv: Conversation) -> int:
 
     doc_ids: set[str] = set()
     if conv.mem_doc_id:
-        doc_ids.add(conv.mem_doc_id)
+        # 档案制护栏：mem_doc_id 可能指向**共享的「长期记忆档案」**（mem:profile:*），
+        # 它不属于任何一个会话，绝不能随会话删除——只删 mem:conv:* 的会话记忆文档。
+        mem_doc = db.get(Knowledge, conv.mem_doc_id)
+        if mem_doc is not None and (mem_doc.source_key or "").startswith("mem:conv:"):
+            doc_ids.add(conv.mem_doc_id)
     # 兜底：mem_doc_id 冗余可能缺失/不同步，按 source_key 再查一次会话记忆文档
     sk_doc = db.execute(
         select(Knowledge).where(

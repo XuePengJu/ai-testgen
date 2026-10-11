@@ -124,6 +124,15 @@ def hybrid_search_docs(db: Session, query: str, kb_ids: list[str],
         # 同分按 id 稳定排序，保证可复现
         fused.sort(key=lambda t: (-t[0], t[1]))
 
+        # ---- 引用去噪：融合相对阈值（与条目级 V7.4 同口径）----
+        # RRF 是名次制融合分，原先融合后没有任何门槛：BM25 蹭上一个词即可
+        # 进名次表拿到 rrf>0，个人记忆库薄文档（会话记忆/日报）大量弱命中
+        # 挤占 top_k。cutoff = best_rrf * ratio：榜首恒保留，长尾蹭词砍掉。
+        # ratio=0 时退化为旧行为（运维回滚口径）。
+        if fused and config.AITF_DOC_MIN_SCORE_RATIO > 0:
+            cutoff = fused[0][0] * config.AITF_DOC_MIN_SCORE_RATIO
+            fused = [t for t in fused if t[0] >= cutoff]
+
         # ---- V7.4.1 显示口径修复 ----
         # RRF 是**名次融合分**（理论满分仅 1/(K+1)≈0.0164），被前端 `score*100`
         # 当百分比渲染会塌成 1~2%，让人误以为「没匹配上」（实测 0.0155 其实是

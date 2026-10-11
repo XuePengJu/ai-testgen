@@ -43,6 +43,30 @@ def _build_user_content(prompt: str, prev_memory: str) -> str:
     return "\n\n".join(parts)
 
 
+def _memory_client():
+    """解析记忆提炼用的文本模型客户端（池 > 单条 > env > mock；独立短会话）。
+
+    不绑定请求级 db：后台任务/手动按钮都可能调用，user 传 None 避免个人未配
+    模型时夜间提炼全部失败。无可用模型返回 None。
+    """
+    from app.core.db import SessionLocal
+    from app.services import llm_pool
+
+    db = SessionLocal()
+    try:
+        return llm_pool.build_client(db, None, "text")
+    finally:
+        db.close()
+
+
+def _strip_markdown_fence(text: str) -> str:
+    """剥掉模型偶尔裹的代码围栏（入库分块前保持纯 Markdown）。"""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`").lstrip("markdown").strip()
+    return t
+
+
 def memory_chat(prompt: str, prev_memory: str = "") -> str:
     """把对话 transcript 提炼为记忆文档（Markdown），失败抛 LLMError。
 
@@ -50,15 +74,9 @@ def memory_chat(prompt: str, prev_memory: str = "") -> str:
     （不绑定请求级 db），user 传 None → 平台池 > env 兜底，避免个人未配模型
     时夜间提炼全部失败。
     """
-    from app.core.db import SessionLocal
-    from app.services import llm_pool
     from app.services.langchain_client import LLMError
 
-    db = SessionLocal()
-    try:
-        client = llm_pool.build_client(db, None, "text")
-    finally:
-        db.close()
+    client = _memory_client()
     if client is None:
         raise LLMError("未配置可用的文本模型，无法提炼记忆")
 
@@ -83,12 +101,73 @@ def memory_chat(prompt: str, prev_memory: str = "") -> str:
         ]
         out = client.chat(messages, temperature=0.2, max_tokens=_MAX_TOKENS * 2,
                           enable_thinking=False)
-    text = (out or "").strip()
-    # 剥掉模型偶尔裹的代码围栏（入库分块前保持纯 Markdown）
-    if text.startswith("```"):
-        text = text.strip("`").lstrip("markdown").strip()
+    text = _strip_markdown_fence(out or "").strip()
     if not text:
         raise LLMError("模型返回空内容，记忆提炼失败")
+    return text
+
+
+# ============ 档案制：transcript 滚动合并进长期记忆档案 ============
+
+# 「档案合并」与 memory_chat 的区别：输入是（本次对话 + 现有档案全文），
+# 输出是**完整的新版档案**——档案本身就是滚动合并的产物，不再有「每会话一份」。
+_PROFILE_SYSTEM_PROMPT = (
+    "你是测试平台的长期记忆档案管理员。用户给你一段新对话记录和该用户的"
+    "现有记忆档案，请把它们合并成一份**完整的新版档案**，输出 Markdown。\n"
+    "要求：\n"
+    "1. 固定使用以下小节（一级标题用 ##）：项目与系统 / 业务规则 / 关键结论 / "
+    "用户偏好 / 待办与遗留；\n"
+    "2. **合并去重**：保留现有档案中仍然有效的信息，把新对话里有长期价值的"
+    "信息并入对应小节；同一事实只保留一条（新信息优先）；\n"
+    "3. 保留具体名词：模块名、字段名、数量、接口名、双方约定，不要泛化改写；\n"
+    "4. 删掉寒暄、重复与无信息量的过程性内容（「我发了…」「已基于…进行补充」"
+    "这类流水账不进档案）；\n"
+    "5. 某小节无内容时写「（暂无）」，不要编造；\n"
+    "6. 若新对话完全没有值得并入档案的长期信息，只输出 UNCHANGED 一个词；\n"
+    "7. 只输出档案本身或 UNCHANGED，不要任何解释、前言或代码围栏。"
+)
+
+_PROFILE_LIMIT = 4000  # 档案全文输入上限（增长到上限后由模型自行压缩归纳）
+
+
+def profile_chat(transcript: str, profile_text: str) -> str:
+    """把 transcript 合并进现有长期记忆档案，返回**完整新版档案**（Markdown）。
+
+    - 无新增长期信息时返回字面量 "UNCHANGED"（调用方跳过写库）
+    - 失败抛 LLMError；超长重试一次（与 memory_chat 同款策略）
+    """
+    from app.services.langchain_client import LLMError
+
+    client = _memory_client()
+    if client is None:
+        raise LLMError("未配置可用的文本模型，无法提炼记忆")
+
+    def _build(t: str, p: str) -> list[dict]:
+        parts = [f"新对话记录：\n{(t or '').strip()[:_TRANSCRIPT_LIMIT]}"]
+        if p and p.strip():
+            parts.append(f"现有记忆档案：\n{p.strip()[:_PROFILE_LIMIT]}")
+        else:
+            parts.append("现有记忆档案：（空，首次建档）")
+        return [
+            {"role": "system", "content": _PROFILE_SYSTEM_PROMPT},
+            {"role": "user", "content": "\n\n".join(parts)},
+        ]
+
+    messages = _build(transcript, profile_text)
+    try:
+        out = client.chat(messages, temperature=0.2, max_tokens=_MAX_TOKENS,
+                          enable_thinking=False)
+    except LLMError as e:
+        logger.warning("档案合并首次调用失败，输入截半重试：%s", str(e)[:200])
+        messages = _build(transcript[:max(0, _TRANSCRIPT_LIMIT // 2)],
+                          profile_text[:max(0, _PROFILE_LIMIT // 2)])
+        out = client.chat(messages, temperature=0.2, max_tokens=_MAX_TOKENS * 2,
+                          enable_thinking=False)
+    text = _strip_markdown_fence(out or "").strip()
+    if not text:
+        raise LLMError("模型返回空内容，档案合并失败")
+    if text.upper().rstrip("。.！!") == "UNCHANGED":
+        return "UNCHANGED"
     return text
 
 

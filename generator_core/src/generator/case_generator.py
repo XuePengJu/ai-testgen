@@ -10,8 +10,21 @@ V3.1 多角色协作（轻量版）：每个测试点可按角色（产品 pm / 
 D 修复（2026-09-24）：LLM 输出解析不再用贪婪正则 ``re.search(r"\\[.*\\]")``，
 改为公共工具 ``src.utils.jsonx`` 的「括号配对切片 + 逐候选宽松解析」，并把
 「调用成功但解析出 0 条」显性上报（logger.warning + CaseGenerator.parse_failures）。
+
+V1.3 提速（2026-10-11）：
+- **强制关思考**：结构化抽取（只输出 JSON）开思考会让耗时可翻数倍，且思考 token 挤占
+  max_tokens 把正文截断成空。统一走 ``call_generate`` 传 ``enable_thinking=False``。
+- **子任务并发**：``generate`` 默认并发 ``GENERATE_CONCURRENCY`` 路（环境变量
+  ``AITF_GEN_CONCURRENCY`` 可调，1 = 退回串行）。实测 7 个子任务串行 353s，
+  并发后墙钟从「累加」变「取最大」。
+- 用例顺序仍严格按 unit × role 原顺序收敛后再去重编号，保证前端预览序号与
+  完成后的正式编号走向一致。
 """
+import inspect
 import logging
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import settings
 from src.models.testcase import TestCase, RequirementUnit, align_step_expectations
@@ -23,6 +36,49 @@ logger = logging.getLogger(__name__)
 # 角色标识 → 展示名（进度回调/汇总用）
 ROLES_ORDER = ["pm", "qa", "dev"]
 ROLE_LABELS = {"pm": "产品", "qa": "测试", "dev": "开发"}
+
+
+def _env_int(name: str, default: int, lo: int = 0) -> int:
+    """容错读整数环境变量：非法值回落默认，避免一个手滑的环境变量把生成打挂。"""
+    try:
+        return max(lo, int(os.getenv(name, "") or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# 子任务并发度（V1.3）：N 个「测试点 × 角色」并行调用模型，墙钟耗时从「累加」变「取最大」。
+# 1 = 退回旧的严格串行行为；调大可进一步缩短，但更容易撞 429（模型池有冷却+切换兜底）。
+GENERATE_CONCURRENCY = _env_int("AITF_GEN_CONCURRENCY", 4, lo=1)
+
+
+def _accepts_enable_thinking(fn) -> bool:
+    """client.generate 是否接受 enable_thinking 关键字。
+
+    测试替身（以及外部注入的极简 client）常只收一个 prompt，传关键字会 TypeError；
+    不可内省的对象一律按「不支持」处理，回落单参调用。
+    """
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if "enable_thinking" in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def call_generate(client, prompt: str) -> str:
+    """调模型生成用例，并强制关闭思考（enable_thinking=False）。
+
+    结构化抽取（要求「只输出 JSON」）开思考有三重代价：
+      1. 整个来回耗时可翻数倍（思考 token 也在解码）；
+      2. 思考 token 挤占 max_tokens，正文被截断成空（表现为「解析无产出 · 原文 0 字」）；
+      3. 正文退化成摘要式少量结果。
+    项目内既有结论见 app/services/memory/llm.py 与 app/services/langchain_client.py 的
+    ``chat`` docstring；本函数把该结论落到用例生成这条链路上。
+    """
+    if _accepts_enable_thinking(client.generate):
+        return client.generate(prompt, enable_thinking=False)
+    return client.generate(prompt)
 
 # 角色 → 模板后缀（qa 用现有模板，无后缀）
 _ROLE_TPL_SUFFIX = {"pm": "_pm", "dev": "_dev", "qa": ""}
@@ -119,6 +175,8 @@ class CaseGenerator:
         # 「模型调用成功但没解析出用例」的测试点清单（供上层显性提示，不再静默丢）
         self.parse_failures: list[dict] = []
         self.last_diag: dict = {}
+        # 子任务并发（V1.3）：parse_failures 会被多线程同时追加，必须加锁
+        self._lock = threading.Lock()
 
     def _load_template(self, kind: str, role: str = "qa") -> str:
         if self.template_loader:
@@ -165,10 +223,21 @@ class CaseGenerator:
         """兼容入口：只返回用例列表（诊断信息见 parse_cases_detailed）。"""
         return parse_cases_detailed(text)[0]
 
-    def generate_for_unit(self, unit: RequirementUnit, role: str = "qa") -> list[TestCase]:
+    def generate_for_unit(self, unit: RequirementUnit, role: str = "qa",
+                          client=None) -> list[TestCase]:
+        """为单个「测试点 × 角色」生成用例。
+
+        client：本次调用实际使用的模型客户端；None → 用构造时注入的 self.injected
+        （并发场景由调用方决定是否传独立实例）。
+
+        空正文（HTTP 成功但正文 0 字）由底层客户端重试 + 模型池切换候选兜底，
+        本层只负责把「最终仍无产出」显性记进 parse_failures，不静默吞掉。
+        """
         used_mock = False
+        cases: list[TestCase] = []
+        diag: dict = {}
         try:
-            cases = self._generate_inner(unit, role)
+            cases, diag = self._generate_inner(unit, role, client)
         except NoModelError:
             raise  # 未配模型：必须向上暴露，不用假用例掩盖
         except Exception:
@@ -177,26 +246,31 @@ class CaseGenerator:
                 used_mock = True
             else:
                 raise
+
         if not cases and not used_mock:
             # 调用成功却 0 条：多半是解析失败（reason 已由 _generate_inner 记入 last_diag）
-            self.parse_failures.append({
-                "unit": unit.name,
-                "role": role,
-                "reason": self.last_diag.get("reason", "unknown"),
-                "skipped": self.last_diag.get("skipped", 0),
-                "raw_len": self.last_diag.get("raw_len", 0),
-            })
+            with self._lock:
+                self.parse_failures.append({
+                    "unit": unit.name,
+                    "role": role,
+                    "reason": diag.get("reason", "unknown"),
+                    "skipped": diag.get("skipped", 0),
+                    "raw_len": diag.get("raw_len", 0),
+                })
         return cases
 
-    def _generate_inner(self, unit: RequirementUnit, role: str = "qa") -> list[TestCase]:
-        if self.injected is None:
+    def _generate_inner(self, unit: RequirementUnit, role: str = "qa",
+                        client=None) -> tuple[list[TestCase], dict]:
+        """真实调用一次模型并解析。返回 (cases, diag)；未配模型时抛 NoModelError。"""
+        client = self.injected if client is None else client
+        if client is None:
             # 未注入模型：仅演示模式允许假的规则用例兜底
             if settings.ALLOW_DEMO:
-                return mock_generate(unit)
+                return mock_generate(unit), {"reason": "demo", "raw_len": 0, "skipped": 0}
             raise NoModelError(_no_model_hint(role))
-        # 平台注入的真实模型：OpenAI 兼容调用
+        # 平台注入的真实模型：OpenAI 兼容调用；结构化抽取强制关思考（见 call_generate）
         prompt = self._build_prompt(unit, role)
-        text = self.injected.generate(prompt)
+        text = call_generate(client, prompt)
         cases, diag = parse_cases_detailed(text)
         self.last_diag = diag
         if not cases:
@@ -209,32 +283,57 @@ class CaseGenerator:
                 "用例部分丢弃（unit=%s role=%s）：%d/%d 条结构不合法",
                 unit.name, role, diag["skipped"], diag["raw_items"],
             )
-        return cases
+        return cases, diag
 
-    def generate(self, units: list[RequirementUnit], progress_cb=None, roles=None) -> list[TestCase]:
-        """为全部测试点按角色生成用例（unit × role 双层循环）。
+    def generate(self, units: list[RequirementUnit], progress_cb=None,
+                 roles=None, concurrency: int | None = None) -> list[TestCase]:
+        """为全部测试点按角色生成用例（unit × role 双层）。
 
-        progress_cb(cur, total, unit_name, cases_so_far)：每个「测试点×角色」完成后
-        回调一次，供上层做实时子进度展示（默认 None 不影响旧调用）。
+        V1.3 并发：默认并发 GENERATE_CONCURRENCY 路（AITF_GEN_CONCURRENCY 可调，1 = 串行）。
+        并发只影响「墙钟耗时」，用例顺序仍严格按 unit × role 的原顺序收敛，再去重编号 ——
+        这样前端的预览序号与完成后的正式编号走向一致，不会来回跳。
+
+        progress_cb(cur, total, label, cases_so_far, new_cases)：每个「测试点×角色」完成后
+        回调一次（多线程下已加锁串行回调），供上层做实时子进度 + 增量落库。
         """
         role_list = parse_roles(roles) if roles is not None else self.roles
-        all_cases: list[TestCase] = []
-        total = len(units) * len(role_list)
-        cur = 0
-        for role in role_list:
-            role_label = ROLE_LABELS.get(role, role)
-            for u in units:
-                cur += 1
-                all_cases.extend(self.generate_for_unit(u, role))
-                if progress_cb:
-                    try:
-                        progress_cb(
-                            cur, total,
-                            f"{u.name} · {role_label}视角",
-                            len(all_cases),
-                        )
-                    except Exception:  # noqa: BLE001  进度回调失败绝不能影响生成
-                        pass
+        plan = [(u, role) for role in role_list for u in units]
+        total = len(plan)
+        buckets: list[list[TestCase]] = [[] for _ in plan]
+        done = 0
+        cb_lock = threading.Lock()
+
+        def _emit(idx: int, unit: RequirementUnit, role: str, produced: list[TestCase]) -> None:
+            nonlocal done
+            buckets[idx] = produced
+            with cb_lock:
+                done += 1
+                if not progress_cb:
+                    return
+                label = f"{unit.name} · {ROLE_LABELS.get(role, role)}视角"
+                try:
+                    progress_cb(done, total, label,
+                                sum(len(b) for b in buckets), produced)
+                except Exception:  # noqa: BLE001  进度回调失败绝不能影响生成
+                    pass
+
+        def _work(idx: int, unit: RequirementUnit, role: str) -> None:
+            _emit(idx, unit, role, self.generate_for_unit(unit, role))
+
+        level = GENERATE_CONCURRENCY if concurrency is None else max(1, concurrency)
+        workers = min(level, total)
+        if workers <= 1:
+            for i, (u, role) in enumerate(plan):
+                _work(i, u, role)
+        else:
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix="gen") as pool:
+                futures = [pool.submit(_work, i, u, r)
+                           for i, (u, r) in enumerate(plan)]
+                for fut in as_completed(futures):
+                    fut.result()  # 任一子任务抛错 → 冒泡（与串行语义一致）
+
+        all_cases: list[TestCase] = [c for b in buckets for c in b]
         # 去重（跨角色输出合并后，按标题/模块/类型去重）
         seen, dedup = set(), []
         for c in all_cases:

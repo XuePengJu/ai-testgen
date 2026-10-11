@@ -202,3 +202,93 @@ def upsert_memory_doc(db: Session, kb: KnowledgeBase, conv, md_text: str) -> str
     ingest_document(db, kb, doc, md_text)
     logger.info("会话记忆文档已入库 conv=%s doc=%s", conv.id, doc.id)
     return doc.id
+
+
+# ============ 档案制：单一长期记忆档案（每用户一份，滚动合并） ============
+
+def profile_source_key(user_id: int) -> str:
+    return f"mem:profile:{user_id}"
+
+
+def read_profile_text(db: Session, user_id: int) -> str:
+    """读该用户的长期记忆档案全文；无档案或已删返回空串。"""
+    doc = db.execute(
+        select(Knowledge).where(Knowledge.source_key == profile_source_key(user_id))
+    ).scalars().first()
+    if doc is None or doc.deleted_at is not None:
+        return ""
+    return read_memory_text(db, doc.id)
+
+
+def upsert_profile_doc(db: Session, kb: KnowledgeBase, user_id: int,
+                       md_text: str) -> str:
+    """把长期记忆档案写入/覆盖（幂等键 source_key = mem:profile:{user_id}）。
+
+    与 upsert_memory_doc 同款幂等覆盖口径（清旧向量分块再重建）。档案被用户
+    从 UI 删除后，下次整理会以「空档案」重建——旧内容不回来（删了就是删了），
+    但容器会随新记忆重新出现。
+    """
+    from app.services.knowledge.ingest import delete_document_vectors, ingest_document
+
+    source_key = profile_source_key(user_id)
+    title = "长期记忆档案"
+    doc = db.execute(
+        select(Knowledge).where(Knowledge.source_key == source_key)
+    ).scalars().first()
+    if doc is not None:
+        delete_document_vectors(db, doc.id)
+        doc.knowledge_base_id = kb.id
+        doc.title = title
+        doc.file_hash = _md5(source_key)
+        doc.parse_status = "parsing"
+        doc.error_message = ""
+        doc.deleted_at = None
+        doc.file_size = len((md_text or "").encode("utf-8"))
+        db.commit()
+        db.refresh(doc)
+    else:
+        doc = Knowledge(
+            user_id=user_id,
+            knowledge_base_id=kb.id,
+            type="document",
+            title=title,
+            file_name="",
+            file_type="txt",
+            file_path="",
+            file_size=len((md_text or "").encode("utf-8")),
+            file_hash=_md5(source_key),
+            source_key=source_key,
+            parse_status="parsing",
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+    ingest_document(db, kb, doc, md_text)
+    logger.info("长期记忆档案已入库 user=%s doc=%s", user_id, doc.id)
+    return doc.id
+
+
+def unlink_memory_doc(db: Session, doc: Knowledge) -> bool:
+    """UI 删除记忆类文档时同步清会话的整理水位（删除联动）。
+
+    - mem:conv:{uid}:{conv_id} → 清该会话 mem_doc_id/mem_at/mem_status
+      （否则下次整理按 source_key 找到软删行会把它**复活**——实测踩过的坑）
+    - mem:daily / mem:profile → 容器性质，无需联动（后续整理自然重建）
+    返回是否发生了会话联动（测试断言用）。
+    """
+    sk = doc.source_key or ""
+    if not sk.startswith("mem:conv:"):
+        return False
+    parts = sk.split(":")
+    if len(parts) < 4:
+        return False
+    conv_id = parts[-1]
+    from app.models.conversation import Conversation
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        return False
+    conv.mem_doc_id = None
+    conv.mem_at = None
+    conv.mem_status = "idle"
+    logger.info("记忆文档删除联动：已清会话水位 conv=%s doc=%s", conv_id, doc.id)
+    return True  # 不自行 commit：与调用方的文档软删同事务提交

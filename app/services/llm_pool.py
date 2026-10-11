@@ -17,6 +17,7 @@ from datetime import timedelta
 from app.core import config
 from app.core.utils import utcnow
 from app.services.langchain_client import (
+    EMPTY_CONTENT_MSG,
     LangChainClient,
     _HttpxCompatClient,
     LLMError,
@@ -34,6 +35,7 @@ ERR_LABEL = {
     "auth": "API Key 已过期或无效",
     "rate_limit": "限流 · 请稍后再试",
     "quota": "额度已用尽",
+    "empty": "模型返回空内容 · 已重试",
     "network": "网络错误 · 请稍后再试",
     "server": "模型服务异常 · 请稍后再试",
     "not_found": "端点或模型不存在",
@@ -46,6 +48,7 @@ COOLDOWN_SECONDS: dict[str, float] = {
     "rate_limit": 300,        # 限流：5 分钟后大概率恢复
     "server": 60,             # 服务端 5xx：1 分钟
     "network": 60,            # 超时 / 连接失败：1 分钟
+    "empty": 60,              # 空正文重试后仍为空：多为偶发抽风，短冷却即可回来
     "auth": 1800,             # Key 失效：30 分钟（改 Key 会清冷却）
     "not_found": 1800,        # 模型/端点不存在：30 分钟
     "other": 1800,            # 400 参数错等：30 分钟
@@ -58,7 +61,12 @@ def classify_error(msg: str) -> str:
 
     与迁移前的 api/llm_config._classify_error 行为一致，仅把 404 单独归为
     not_found（原先落进 other，前端提示不准确）。
+
+    empty：底层客户端的「空正文」错误文案（见 langchain_client.EMPTY_CONTENT_MSG）。
+    必须与 other 分开——否则一次偶发空返回会把该模型冷却 30 分钟，池里其它任务全被牵连。
     """
+    if EMPTY_CONTENT_MSG in (msg or ""):
+        return "empty"
     m = re.search(r"HTTP (\d{3})", msg or "")
     if m:
         code = int(m.group(1))
@@ -177,7 +185,10 @@ class PoolClient:
 
     def _on_fail(self, cand: dict, err: str) -> str:
         kind = classify_error(err)
-        self._skip.add(cand["_seq"])
+        # empty：偶发抽风（底层已重试过），写短冷却即可；**不**加入 _skip —— 否则池里
+        # 只有一条候选时会直接退化成「模型池无可用候选」，把「偶发空返回」升级成整任务失败。
+        if kind != "empty":
+            self._skip.add(cand["_seq"])
         self._persist(cand, False, err, kind)
         return kind
 

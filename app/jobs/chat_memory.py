@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.core.config import (
     AITF_MEMORY_DIGEST_DAILY,
     AITF_MEMORY_ITEMS_ENABLED,
@@ -168,25 +169,38 @@ def process_conversation(db: Session, conv: Conversation, manual: bool = False) 
         return {"memory": "skipped", "doc_id": conv.mem_doc_id,
                 "attachments": _ingest_pending_attachments(db, conv), "daily": False}
 
-    # 1) 组 transcript + 读上一版记忆（滚动摘要合并去重）
+    # 1) 组 transcript + 读上一版记忆
+    #    档案制：上一版 = 该用户的「长期记忆档案」全文（跨会话滚动合并）；
+    #    旧机制：上一版 = 本会话记忆文档的滚动摘要（按会话隔离）。
     msgs = collect_new_messages(db, conv)
     transcript = _build_transcript(msgs)
     prev_memory = ""
-    if conv.mem_doc_id:
+    if config.AITF_MEMORY_PROFILE_MODE:
+        from app.services.memory.store import read_profile_text
+        prev_memory = read_profile_text(db, conv.user_id)
+    elif conv.mem_doc_id:
         try:
             prev_memory = read_memory_text(db, conv.mem_doc_id)
         except Exception as e:  # noqa: BLE001  旧文档读不到就当无上一版
             logger.warning("会话 %s 旧记忆读取失败：%s", conv.id, e)
 
-    # 2) LLM 提炼（无增量消息时仍允许手动重建；transcript 为空且无上一版则跳过）
+    # 2) 提炼门槛：低价值会话不提炼（档案制专属；旧机制保持逐字节回滚口径）。
+    #    transcript 有效字符数低于门槛（纯寒暄/单轮操作）且档案为空 → 跳过。
+    #    只推水位不写库不置 mem_at（不该出现在日报里）。
+    if (config.AITF_MEMORY_PROFILE_MODE and len((transcript or "").strip()) < config.AITF_MEMORY_MIN_CHARS
+            and not prev_memory.strip()):
+        conv.mem_dirty = False
+        conv.mem_last_msg_id = _latest_msg_id(db, conv)
+        conv.mem_error = None
+        db.commit()
+        return {"memory": "skipped", "doc_id": None,
+                "attachments": _ingest_pending_attachments(db, conv), "daily": False}
+
+    # 3) LLM 提炼（无增量消息时仍允许手动重建；transcript 为空且无上一版则跳过）
     if not transcript.strip() and not prev_memory.strip():
         return {"memory": "skipped", "doc_id": conv.mem_doc_id,
                 "attachments": _ingest_pending_attachments(db, conv), "daily": False}
 
-    from app.services.memory.llm import memory_chat  # 延迟 import 便于测试 monkeypatch
-    md_text = memory_chat(transcript, prev_memory=prev_memory)
-
-    # 3) 入库 + 推进水位（失败在上面抛出，水位不动）
     from app.models.knowledge import KnowledgeBase
     kb_id = get_personal_kb_id(db, conv.user_id)
     if not kb_id:
@@ -195,7 +209,32 @@ def process_conversation(db: Session, conv: Conversation, manual: bool = False) 
         kb = ensure_personal_kb(db, user)
     else:
         kb = db.get(KnowledgeBase, kb_id)
-    doc_id = upsert_memory_doc(db, kb, conv, md_text)
+
+    if config.AITF_MEMORY_PROFILE_MODE:
+        # 档案制：合并进单一「长期记忆档案」，不再每会话一份文档
+        from app.services.memory.llm import profile_chat  # 延迟 import 便于测试 monkeypatch
+        md_text = profile_chat(transcript, prev_memory)
+        if md_text == "UNCHANGED":
+            # 本轮对话无新增长期信息：只推水位，档案不动
+            from app.services.memory.store import profile_source_key
+            row = db.execute(
+                select(Knowledge.id).where(
+                    Knowledge.source_key == profile_source_key(conv.user_id))
+            ).scalars().first()
+            conv.mem_dirty = False
+            conv.mem_last_msg_id = _latest_msg_id(db, conv)
+            conv.mem_doc_id = row
+            conv.mem_at = utcnow()
+            conv.mem_error = None
+            db.commit()
+            return {"memory": "skipped", "doc_id": row,
+                    "attachments": _ingest_pending_attachments(db, conv), "daily": False}
+        from app.services.memory.store import upsert_profile_doc
+        doc_id = upsert_profile_doc(db, kb, conv.user_id, md_text)
+    else:
+        from app.services.memory.llm import memory_chat  # 延迟 import 便于测试 monkeypatch
+        md_text = memory_chat(transcript, prev_memory=prev_memory)
+        doc_id = upsert_memory_doc(db, kb, conv, md_text)
 
     # 3.5) V7.0 条目级记忆双写（与文档链路并行；任何异常只回滚条目变更，
     # 绝不阻断文档链路——文档已 commit，rollback 只清未提交的条目事务）
@@ -227,11 +266,12 @@ def process_conversation(db: Session, conv: Conversation, manual: bool = False) 
 
 
 def build_daily_index(db: Session, user_id: int, date_str: str) -> str:
-    """聚合某用户当日（mem_at 落在 date_str，按 AITF_MEMORY_TZ 切日）的会话记忆文档
-    为「记忆日报」。
+    """聚合某用户当日的会话记忆为「记忆日报」。
 
-    纯拼装（目录 + 每篇 2~3 行摘要句），不调 LLM；source_key =
-    mem:daily:{user_id}:{date_str}，与会话记忆同款「先删向量再 ingest」幂等覆盖。
+    档案制（默认）：**纯索引**——只记当天整理过哪些会话（时间+标题），不复制
+    正文；长期内容统一在「长期记忆档案」。source_key = mem:daily:{user_id}:{date}。
+    旧机制（AITF_MEMORY_PROFILE_MODE=0）：目录 + 每篇 2~3 行摘要句（逐字聚合）。
+    两者都是纯拼装不调 LLM；「先删向量再 ingest」幂等覆盖。
     当日无会话记忆 → 返回空串（不生成空日报）。
     """
     from app.models.knowledge import KnowledgeBase
@@ -258,28 +298,41 @@ def build_daily_index(db: Session, user_id: int, date_str: str) -> str:
             Conversation.mem_at < day_end,
         ).order_by(Conversation.mem_at)
     ).scalars().all()
-    docs: list[tuple[Conversation, str]] = []
-    for c in rows:
-        text = read_memory_text(db, c.mem_doc_id)
-        if text.strip():
-            docs.append((c, text))
-    if not docs:
+    if not rows:
         return ""
 
-    # 目录 + 每篇 2~3 行摘要句（取「关键结论」小节优先，缺省回落正文开头）
-    lines = [f"# 记忆日报 · {date_str}", ""]
-    for c, text in docs:
-        lines.append(f"## 会话「{c.title or '新会话'}」")
-        snippet = ""
-        for block in text.split("\n"):
-            if block.strip().startswith("## 关键结论"):
-                snippet = text.split("## 关键结论", 1)[1].lstrip(":\n ")[:200]
-                break
-        if not snippet:
-            snippet = text[:200]
-        lines.append(snippet.strip() or "（无有效内容）")
-        lines.append("")
-    md_text = "\n".join(lines)
+    if config.AITF_MEMORY_PROFILE_MODE:
+        # 档案制：日报降级为**纯索引**——只记当天整理过哪些会话（时间+标题），
+        # 不再逐字复制各会话记忆正文（旧机制同一内容库里存两份的根因）。
+        # 长期内容统一看「长期记忆档案」。
+        lines = [f"# 记忆日报 · {date_str}", ""]
+        for c in rows:
+            hhmm = c.mem_at.astimezone(tz).strftime("%H:%M") if c.mem_at else ""
+            title = " ".join((c.title or "新会话").split())[:40]
+            lines.append(f"- {hhmm} 会话「{title}」")
+        md_text = "\n".join(lines)
+    else:
+        # 旧机制：目录 + 每篇 2~3 行摘要句（取「关键结论」小节优先，缺省回落正文开头）
+        docs: list[tuple[Conversation, str]] = []
+        for c in rows:
+            text = read_memory_text(db, c.mem_doc_id)
+            if text.strip():
+                docs.append((c, text))
+        if not docs:
+            return ""
+        lines = [f"# 记忆日报 · {date_str}", ""]
+        for c, text in docs:
+            lines.append(f"## 会话「{c.title or '新会话'}」")
+            snippet = ""
+            for block in text.split("\n"):
+                if block.strip().startswith("## 关键结论"):
+                    snippet = text.split("## 关键结论", 1)[1].lstrip(":\n ")[:200]
+                    break
+            if not snippet:
+                snippet = text[:200]
+            lines.append(snippet.strip() or "（无有效内容）")
+            lines.append("")
+        md_text = "\n".join(lines)
 
     kb_id = get_personal_kb_id(db, user_id)
     if not kb_id:
