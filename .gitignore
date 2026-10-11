@@ -56,3 +56,5 @@ frontend/vite.config.ts.timestamp-*.mjs
 
 # pytest 覆盖率产物
 .coverage
+backups/
+.db-credentials-ai-testgen.txt
