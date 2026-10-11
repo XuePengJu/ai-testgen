@@ -48,6 +48,9 @@ vectors/
 # M0 平台自身质量量化数据（聚合结果与历史趋势，运行产物不入库）
 quality_data/
 
+# 测试统一产物目录（junit xml / e2e-report.json / 视频·截图·trace 等，运行产物不入库）
+reports/
+
 # Vite 构建临时产物（vite.config.ts 时间戳文件）
 frontend/vite.config.ts.timestamp-*.mjs
 
