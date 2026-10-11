@@ -33,6 +33,10 @@ export interface ChatMsg {
   persona?: string;
   /** V4.1 引用溯源：SSE citations 事件回传的知识库命中条目（showCitations 时渲染） */
   citations?: CitationItem[];
+  /** 思考计时起点（首个思考/正文 token 到达的 Date.now()，ms）。流式态「已思考 Xs」与完成态「用时 Xs」共用 */
+  thinkStartedAt?: number;
+  /** 思考/首字总耗时（秒，保留 1 位小数）。done 时定格写入 */
+  thinkDuration?: number;
 }
 
 export interface HistoryItem {
@@ -416,6 +420,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           {
             id: nextId(), role: "assistant", content: "", thinking: "",
             state: "done", task: child,
+            // 迭代产物无流式思考，不参与计时（thinkDuration 省略 → 面板不显示「用时」）
+            thinkStartedAt: undefined,
           },
         ],
         // chip 指向新子任务：连续补充时版本链 v2 → v3 继续递增；清空累积，重新沟通
@@ -562,6 +568,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: nextId(), role: "assistant", content: "", thinking: "", state: "streaming",
       // 回复身份取第一个选中角色（多选时第一个生效）
       persona: draft.roles?.[0] || "qa",
+      // 发送即起表：阶段①（等待首 token）的计时从点发送那一刻算，首 token 到达后被覆盖为真起点
+      thinkStartedAt: Date.now(),
     };
     const convId = get().conversationId || "";
     set({
@@ -594,6 +602,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     let fullText = "";
     let streamThink = ""; // 上游独立字段（reasoning_content）累积的思考内容
+    let startedAt = 0;   // 首 token 计时起点：首个 delta/think 到达时起表（一次）
     try {
       // 有附件时先单独上传拿 file_id（SSE 流没法带 multipart），
       // 后端抽取文档文本后在对话时注入，AI 才能读到文档内容
@@ -631,6 +640,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         aborter.signal,
         {
           onEvent(ev) {
+            // 首 token 到达即起表（「已思考/已等待 Xs」的时间真源）
+            if (!startedAt && (ev.event === "delta" || ev.event === "think")) {
+              startedAt = Date.now();
+              // 覆盖发送时刻的占位起点为真首 token 时刻（done 定格耗时的基准）
+              patchAi({ thinkStartedAt: startedAt });
+            }
             if (ev.event === "delta") {
               fullText += String(ev.data.content || "");
               const parsed = splitThink(fullText);
@@ -668,6 +683,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 state: "done",
                 source: typeof ev.data.source === "string" ? ev.data.source : undefined,
                 draft: { ...draft, text: draft.text || text },
+                // 思考耗时定格：done 必到，起点必在首个 token 时建好
+                thinkDuration: startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : undefined,
               });
             }
           },

@@ -52,6 +52,17 @@ const RUNNING_HINTS: Record<string, string> = {
 /** M3 计划先行：explore 任务探索步骤等待确认时的提示文案 */
 const AWAITING_CONFIRM_HINT = "⏸ 探索计划已生成，等待确认后开始";
 
+/** V1.3：生成中预览最多展示几条（其余折叠成一行提示） */
+const PREVIEW_MAX = 6;
+
+/** 从后端进度文案里取子任务计数（形如「正在为第 4/7 个子任务生成用例」）。
+ *  取不到返回 null（老任务/未开始），此时不渲染进度条。文案来源见后端 engine.py 的 _progress。 */
+function parseSubProgress(progress?: string | null): { done: number; total: number } | null {
+  const m = /第\s*(\d+)\s*\/\s*(\d+)\s*个子任务/.exec(progress || "");
+  if (!m) return null;
+  return { done: Number(m[1]), total: Number(m[2]) };
+}
+
 export function statusBadge(status: string): { text: string; cls: string } {
   if (status === "completed") return { text: "✓ 已完成", cls: "ok" };
   if (status === "running") return { text: "⏳ 生成中", cls: "run" };
@@ -127,6 +138,13 @@ export default function TaskStepsCard({ task, showIterate = false }: { task: Tas
   const mockNotice = (live.steps || []).some((s) =>
     `${s.output_summary || ""}${s.input_summary || ""}${s.error || ""}`.includes("未配置可用模型")
   );
+
+  // V1.3 生成过程可见性：过程态用例只在详情接口返回（列表轮询不带，避免大 payload）。
+  // 消息内的 task 由 taskStore 的 2s 详情轮询回写，所以优先取它；抽屉内则两者同源。
+  const preview = task.partial_cases?.length
+    ? task.partial_cases
+    : (live.partial_cases || []);
+  const genProgress = parseSubProgress(stepMap["AI 生成用例"]?.progress);
 
   // 旧版本折叠态：一行细条，点击直接开抽屉看该版本（抽屉内可切回最新版）
   if (stale) {
@@ -251,6 +269,49 @@ export default function TaskStepsCard({ task, showIterate = false }: { task: Tas
           );
         })}
       </div>
+      {/* V1.3 生成过程可见性：并发生成时子任务的「完成顺序」不等于「顺序」，
+          所以这里用「计数 + 进度条」，不给逐点落位那种会误导顺序的暗示。 */}
+      {isLive && genProgress && (
+        <div className="tsc-subprog" data-testid="gen-subprog">
+          <div className="tsc-subprog-head">
+            <span className="tsc-subprog-text">
+              子任务 {genProgress.done}/{genProgress.total} 个已完成
+            </span>
+            <span className="tsc-subprog-cnt">已产出 {preview.length} 条用例</span>
+          </div>
+          <div className="tsc-bar">
+            <div
+              className="tsc-bar-fill"
+              style={{ width: `${Math.round((genProgress.done / genProgress.total) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {isLive && preview.length > 0 && (
+        <div className="tsc-preview" data-testid="gen-preview">
+          <div className="tsc-preview-head">
+            <span>已产出的用例（实时）</span>
+            <span className="tsc-preview-note">编号待收尾统一排定</span>
+          </div>
+          <ul className="tsc-preview-list">
+            {preview.slice(0, PREVIEW_MAX).map((c, i) => (
+              <li key={`${c.title}-${i}`} className="tsc-preview-item">
+                <span className="tsc-preview-title">{c.title}</span>
+                <span className="tsc-preview-tags">
+                  {c.module && <span className="tsc-tag">{c.module}</span>}
+                  {c.case_type && <span className="tsc-tag">{c.case_type}</span>}
+                  {c.priority && <span className="tsc-tag tsc-tag-pri">{c.priority}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {preview.length > PREVIEW_MAX && (
+            <div className="tsc-preview-more">
+              还有 {preview.length - PREVIEW_MAX} 条，完成后可在详情页查看全部
+            </div>
+          )}
+        </div>
+      )}
       {live.status === "completed" && (
         <div className="tsc-actions">
           <button

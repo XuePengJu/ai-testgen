@@ -8,6 +8,8 @@
  *   分组，可点击展开；当前正在使用的会话不归档，避免丢失入口。
  *   V5.11 豁免：①今天有更新的会话（刚发起的探索/任务自动会话立刻可见，过夜自动沉底）；
  *   ②有 running/pending 任务的会话（生成中永不折叠，任务数据源 = taskStore 5s 轮询，前端 join）。
+ *   V5.13 收敛：仅当会话总数超过 RECENT_KEEP（9）条才启动折叠——按 updated_at 排序的
+ *   最近 9 条永不归档，总数 ≤9 时侧栏全部平铺展示，避免整体被折叠成一条归档区。
  * V5.9：hover 操作组扩为 3 个——✏️ 重命名（行内编辑）/ ✨ AI 总结标题 / 🗑 删除。
  */
 import { useMemo, useRef, useState } from "react";
@@ -37,6 +39,9 @@ type Group = "今天" | "昨天" | "更早";
 
 /** 总消息数不足该值（不足 2 轮对话）视为简短会话，折叠进归档分组 */
 const SHORT_CONV_LIMIT = 4;
+
+/** V5.13：会话总数超过该值才启动归档折叠；按更新时间排序的前该值条永不折叠 */
+const RECENT_KEEP = 9;
 
 /** 寒暄类标题：整条命中才算（"你好！"、"hi?" 等），正常长标题不受影响 */
 const GREETING_RE =
@@ -107,7 +112,8 @@ export default function ConversationPicker() {
   const [aiBusyId, setAiBusyId] = useState<string | null>(null);
 
   // V5.11 进行中任务所属会话集合：taskStore 5s 轮询已有全量任务（含 conversation_id/status），前端 join 即可
-  // 注意：hook 必须在下方 `if (!token) return` 早退之前调用，否则登出/登录切换时 hook 数量不一致会崩
+  // 注意：下方所有 hook（runningConvIds / recentKeepIds）都必须在 `if (!token) return`
+  // 早退之前调用，否则登出/登录切换时 hook 数量不一致会崩（React #300，V5.13 踩坑实录）
   const tasks = useTaskStore((s) => s.tasks);
   const runningConvIds = useMemo(
     () =>
@@ -118,6 +124,26 @@ export default function ConversationPicker() {
           .filter(Boolean) as string[],
       ),
     [tasks],
+  );
+
+  // 简短会话归档：当前会话不归档（保证正在用的会话永远可见可切回）
+  // V5.11 豁免：今天有更新（刚发起的探索/任务会话立刻可见，过夜自动沉底）、有进行中任务（生成中永不折叠）
+  // V5.13 收敛：仅当总数超过 RECENT_KEEP 条才启动折叠，最近更新的前 RECENT_KEEP 条
+  // 始终平铺可见——防止会话不多时整栏被折叠成一条「已归档」。
+  // ⚠️ 必须保持在早退之前：hook 顺序约束同上（V5.13 回归教训）
+  const recentKeepIds = useMemo(
+    () =>
+      new Set(
+        [...conversations]
+          .sort((a, b) => {
+            const ta = parseServerTime(a.updated_at || a.created_at)?.getTime() ?? 0;
+            const tb = parseServerTime(b.updated_at || b.created_at)?.getTime() ?? 0;
+            return tb - ta;
+          })
+          .slice(0, RECENT_KEEP)
+          .map((c) => c.id),
+      ),
+    [conversations],
   );
 
   const startEdit = (c: Conv) => {
@@ -286,11 +312,14 @@ export default function ConversationPicker() {
 
   // 简短会话归档：当前会话不归档（保证正在用的会话永远可见可切回）
   // V5.11 豁免：今天有更新（刚发起的探索/任务会话立刻可见，过夜自动沉底）、有进行中任务（生成中永不折叠）
+  // V5.13 收敛：仅当总数超过 RECENT_KEEP 条才启动折叠，最近更新的前 RECENT_KEEP 条
+  // 始终平铺可见——防止会话不多时整栏被折叠成一条「已归档」。
   const isShort = (c: Conv) =>
     c.id !== currentId &&
     (c.message_count ?? 0) < SHORT_CONV_LIMIT &&
     !isFreshToday(c) &&
-    !runningConvIds.has(c.id);
+    !runningConvIds.has(c.id) &&
+    !recentKeepIds.has(c.id);
   const active = conversations.filter((c) => !isShort(c));
   const short = conversations.filter(isShort);
   const groups = groupByDate(active);

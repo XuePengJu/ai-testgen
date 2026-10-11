@@ -190,6 +190,16 @@ export interface CaseItem {
   test_data?: string;
 }
 
+/** V1.3：生成过程中「已产出用例」预览（后端 partial_cases，未做 TC 编号） */
+export interface PreviewCase {
+  /** 预览阶段无编号（最终编号在收尾统一重排），可能缺省 */
+  case_id?: string;
+  title: string;
+  module?: string;
+  case_type?: string;
+  priority?: string;
+}
+
 /** 与 app/schemas/task.py:TaskOut 对齐（列表接口 cases 为 []） */
 export interface Task {
   id: string;
@@ -210,6 +220,8 @@ export interface Task {
   finished_at?: string | null;
   steps: StepLog[];
   cases?: CaseItem[];
+  /** V1.3 生成过程可见性：running 期已产出用例（详情接口返回，列表接口为空） */
+  partial_cases?: PreviewCase[];
 }
 
 /** 聊天输入草稿（流式回复完成后「生成测试用例」消费） */

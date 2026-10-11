@@ -394,6 +394,32 @@ body {
   padding: 2px 8px; display: flex; align-items: center; gap: 4px;
 }
 .think-head:hover { color: #165dff; }
+/* 流式态头部：呼吸图标 + 跳点 + 计时（阶段②「活着」的三件套） */
+.think-head.live { color: #4e5969; }
+.think-head .think-live-icon {
+  display: inline-block; font-size: 11px; line-height: 1; color: #165dff;
+  animation: breathe 1.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.6; }
+}
+/* 头部计时数字：等宽数字防跳动 */
+.think-head .think-time {
+  color: #a9aeb8; font-size: 11px; font-variant-numeric: tabular-nums; margin-left: 2px;
+}
+/* 头部内嵌跳点（与正文 thinking-dots 同款动画，尺寸压一档） */
+.think-head .thinking-dots { display: inline-flex; align-items: center; }
+.think-head .thinking-dots span {
+  width: 4px; height: 4px; margin-right: 3px; background: #8f959e;
+}
+/* 收起态右侧提示：蓝色高亮指令语，展开后翻转为「点击收起」（同一位置不重复承诺） */
+.think-hint {
+  margin-left: auto; color: #165dff; font-size: 11.5px; padding-left: 8px;
+}
+.think-head:hover .think-hint { text-decoration: underline; }
+/* 阶段① 等待指示器：点 + 文案（超 3s 才显示秒数，避免一闪而过） */
+.thinking-dots .wait-label { color: #8f959e; font-size: 12px; margin-left: 4px; }
 .think-body {
   margin: 4px 0 4px 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 6px;
   color: #646a73; font-size: 12.5px; line-height: 1.7;
@@ -404,6 +430,8 @@ body {
 }
 /* 「展开全部」：解除上限，完整展示思考内容 */
 .think-body.expanded { max-height: none; overflow-y: visible; }
+/* 折叠/展开过渡：max-height 从 0 ↔ 220 缓动（收起时内容收进标题行下） */
+.think-panel:not(.open) .think-body { display: none; }
 .think-more {
   display: block; margin: 0 0 6px 8px; padding: 0;
   border: none; background: none; cursor: pointer;
@@ -490,6 +518,43 @@ body {
 .tsc-io-text.tsc-muted { color: #8f959e; }
 .tsc-io-err .tsc-io-label, .tsc-io-err .tsc-io-text { color: #d83931; }
 .tsc-io-err { background: #fff5f3; border-radius: 4px; padding: 4px 6px; }
+
+/* V1.3 生成过程可见性：子任务计数 + 进度条 + 已产出用例预览 */
+.tsc-subprog { padding: 8px 12px 0; }
+.tsc-subprog-head {
+  display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
+  font-size: 11.5px; margin-bottom: 5px;
+}
+.tsc-subprog-text { color: #4e5969; font-variant-numeric: tabular-nums; }
+.tsc-subprog-cnt { color: #8f959e; font-variant-numeric: tabular-nums; }
+.tsc-bar { height: 4px; border-radius: 2px; background: #f2f3f5; overflow: hidden; }
+.tsc-bar-fill {
+  height: 100%; border-radius: 2px; background: #d25f00;
+  transition: width .3s ease-out;
+}
+.tsc-preview { padding: 8px 12px 2px; }
+.tsc-preview-head {
+  display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
+  font-size: 11.5px; color: #4e5969; font-weight: 600; margin-bottom: 4px;
+}
+.tsc-preview-note { font-size: 11px; font-weight: 400; color: #8f959e; }
+.tsc-preview-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.tsc-preview-item {
+  display: flex; align-items: center; gap: 8px; padding: 3px 0;
+  border-bottom: 1px dashed #f0f1f3; font-size: 12px;
+}
+.tsc-preview-item:last-child { border-bottom: 0; }
+.tsc-preview-title {
+  flex: 1; min-width: 0; color: #1d2129; line-height: 1.45;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tsc-preview-tags { flex: none; display: flex; gap: 4px; }
+.tsc-tag {
+  font-size: 10.5px; padding: 1px 5px; border-radius: 4px;
+  background: #f2f3f5; color: #646a73; white-space: nowrap;
+}
+.tsc-tag-pri { background: #fff7e8; color: #d25f00; }
+.tsc-preview-more { font-size: 11px; color: #8f959e; padding: 4px 0 2px; }
 
 /* ---- 输入区（方案B：浮动输入岛） ---- */
 .chat-input-wrap {
