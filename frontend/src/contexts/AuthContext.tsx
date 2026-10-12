@@ -30,6 +30,7 @@ import {
   type AuthSnapshot,
 } from "./authState";
 import { api } from "../api/client";
+import { getDemoMeta } from "../components/DemoBanner";
 
 type AuthMode = "login" | "register";
 
@@ -97,12 +98,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [apply]);
 
-  /* 初始化：refreshMe + 首开静默访客（旧版 refreshMe/enterGuestSilently 行为） */
+  /* 初始化：refreshMe + 首开静默访客（旧版 refreshMe/enterGuestSilently 行为）
+   * V9.0：演示模式优先 —— 后端注入 __AITF_DEMO__ 时，无 token 直接走
+   * /api/demo/token 免登录进入 admin，不再弹登录框 / 不静默进 guest。 */
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
     (async () => {
       if (!state.token) {
+        const demo = getDemoMeta();
+        if (demo?.is_demo) {
+          try {
+            const r = await fetch("/api/demo/token", { method: "POST" });
+            const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse>;
+            if (r.ok && d.access_token) {
+              apply({
+                token: d.access_token,
+                encKey: d.enc_key || "",
+                me: {
+                  id: -1,
+                  username: d.username || "admin",
+                  email: null,
+                  role: "admin",
+                  is_active: true,
+                },
+              });
+              setReady(true);
+              return;
+            }
+          } catch {
+            /* 后端不可达：回落原有访客/登录逻辑 */
+          }
+        }
         let manual = false;
         try {
           manual = sessionStorage.getItem("atf_manual_logout") === "1";

@@ -7,6 +7,7 @@
 V2：认证 + 多用户（guest/user/admin）。反代部署时才开 --proxy-headers。
 """
 import logging
+import json
 import os
 from contextlib import asynccontextmanager
 
@@ -32,7 +33,8 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
-from app.api import auth, categories, chat, conversations, files, guest, knowledge, llm_config, llm_pool, memory, prompts, stats, tasks, users
+from app.api import auth, categories, chat, conversations, demo, demo_reset, files, guest, knowledge, llm_config, llm_pool, memory, prompts, stats, tasks, users
+from app.core import demo_config
 from app.core.config import STATIC_DIR, jwt_secret_is_placeholder, ENV, AITF_MEMORY_VEC_BACKFILL_ON_BOOT
 from app.core.db import init_db, engine
 from app.core.logging_config import setup_logging
@@ -101,6 +103,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("记忆调度器初始化失败（不影响启动）：%s", e)
 
+    # V9.0 演示站：每日重置调度器（仅演示实例 AITF_DEMO_ENABLED=1 时启动）
+    try:
+        from app.jobs.demo_reset import init_demo_reset_scheduler
+        init_demo_reset_scheduler()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("演示站重置调度器初始化失败（不影响启动）：%s", e)
+
     yield
 
     # 优雅关闭：等待队列中任务执行完毕（systemd TimeoutStopSec 兜底）
@@ -112,6 +121,13 @@ async def lifespan(app: FastAPI):
         shutdown_scheduler()
     except Exception as e:  # noqa: BLE001
         logger.warning("记忆调度器关闭失败：%s", e)
+
+    # V9.0 演示站：关闭每日重置调度器（幂等）
+    try:
+        from app.jobs.demo_reset import shutdown_demo_reset_scheduler
+        shutdown_demo_reset_scheduler()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("演示站重置调度器关闭失败：%s", e)
 
     # 关闭前把剩余统计聚合落库，防丢尾部数据
     access_log.flush_stats_now()
@@ -153,6 +169,8 @@ app.include_router(knowledge.router, prefix="/api")
 app.include_router(prompts.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
+app.include_router(demo.router, prefix="/api")
+app.include_router(demo_reset.router, prefix="/api")
 
 
 @app.get("/health")
@@ -163,8 +181,19 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def index():
     # no-cache：入口页不缓存，部署后普通刷新即生效（assets 带内容哈希可强缓存）
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    # V9.0 演示站：在 </head> 前注入演示标识脚本（仅演示实例，正式站零影响）。
+    # 用 <base> + data-* 标记让前端 AuthContext 感知演示模式（见 frontend 改造）。
+    if demo_config.AITF_DEMO_ENABLED:
+        banner = (
+            '<script>window.__AITF_DEMO__={is_demo:true,'
+            f'guide_url:{json.dumps(demo_config.AITF_DEMO_GUIDE_URL)},'
+            f'reset_cron:{json.dumps(f"{demo_config.AITF_DEMO_RESET_HOUR:02d}:{demo_config.AITF_DEMO_RESET_MINUTE:02d}")}'
+            '};</script>'
+        )
+        html = html.replace("</head>", banner + "</head>")
     return HTMLResponse(
-        (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+        html,
         headers={"Cache-Control": "no-cache"},
     )
 

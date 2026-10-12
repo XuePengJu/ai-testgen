@@ -22,6 +22,8 @@ _PLAINTEXT_PATHS = {
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/register"),
     ("POST", "/api/guest/token"),
+    # V9.0 演示站免登录 token：与 guest/token 同款明文分发通道
+    ("POST", "/api/demo/token"),
     # SSE 流式响应：响应是 text/event-stream，不能加密；请求体是明文 JSON，无需解密
     ("POST", "/api/chat/stream"),
 }

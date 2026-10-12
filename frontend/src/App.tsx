@@ -16,12 +16,14 @@
  *   （可见性规则不变：用户管理仍仅管理员可见）；
  * - 旧 nav-to detail 值兼容重定向：quality → e2e（测试中心），避免死链接；
  * - 左栏漂浮贴纸（.rail-sticker）移除；「DBERP 进销存」改名「被测系统 · DBERP」。
+ * V9.2（2026-10-12）：rail 菜单图标风格统一 —— 全部改为品牌紫淡底色块（退出登录保留红色示警）；
+ * 「用户管理」图标 Shield→Users 避免与顶部 Logo 撞图标；补齐 `.i-stats` 缺失色块。
  */
 import { useEffect, useState } from "react";
 import {
   Shield, ShieldCheck, Loader2, LogOut, Cpu,
   BookOpen, MessageSquare, UserPlus, ChevronsLeft, ChevronsRight,
-  Boxes, ChevronDown, ExternalLink, Library, BarChart3, Globe,
+  Boxes, ChevronDown, ExternalLink, Library, BarChart3, Globe, Users,
 } from "lucide-react";
 import { useAuth } from "./hooks/useAuth";
 import { useChatStore } from "./store/chatStore";
@@ -31,6 +33,7 @@ import { useCategoryStore } from "./store/categoryStore";
 import ChatPanel from "./components/chat/ChatPanel";
 import ConversationPicker from "./components/chat/ConversationPicker";
 import SelfCheckToast from "./components/SelfCheckToast";
+import { DemoBanner, DemoEnvBadge } from "./components/DemoBanner";
 import CaseLibraryPage from "./pages/CaseLibraryPage";
 import TaskDetailDrawer from "./components/task/TaskDetailDrawer";
 import SettingsPage from "./pages/SettingsPage";
@@ -177,7 +180,9 @@ export default function App() {
   const canKb = !!me;
 
   return (
-    <div className="app-shell">
+    <>
+      <DemoBanner />
+      <div className="app-shell">
       {/* V4.3 左侧可折叠侧边栏：默认展开（图标+文字），可收起为 64px 图标态 */}
       <nav className={"rail" + (railCollapsed ? " collapsed" : "")} aria-label="主导航">
         <div className="rail-head">
@@ -187,6 +192,8 @@ export default function App() {
           <div className="rl-title" onClick={() => setView("main")} style={{ cursor: "pointer" }}>
             AgentTest
           </div>
+          {/* V9.1：顶部提示条被关闭后，环境标识降级到 logo 旁徽章兜底 */}
+          <DemoEnvBadge />
         </div>
         <button
           className="rail-collapse"
@@ -210,7 +217,8 @@ export default function App() {
         {/* V5.3：模型配置（原一级入口下沉）；全角色可见，访客只读调度摘要 */}
         {railBtn("models", <Cpu />, "模型配置", canKb, { active: view === "models", onClick: () => setView("models"), aria: "模型配置 · 模型池与调度", ico: "i-models" })}
         {/* V5.3：管理后台改名「用户管理」（页面现已只含用户管理与访客治理）；仅管理员可见 */}
-        {railBtn("admin", <Shield />, "用户管理", role === "admin", { active: view === "admin", onClick: () => setView("admin"), aria: "用户管理（仅管理员）", ico: "i-admin" })}
+        {/* V9.2：图标 Shield→Users，避免与顶部 Logo 的 Shield 撞图标 */}
+        {railBtn("admin", <Users />, "用户管理", role === "admin", { active: view === "admin", onClick: () => setView("admin"), aria: "用户管理（仅管理员）", ico: "i-admin" })}
         {/* V5.12 使用统计：今日/累计的业务量、LLM 调用与 HTTP 请求看板；仅管理员可见 */}
         {railBtn("stats", <BarChart3 />, "使用统计", role === "admin", { active: view === "stats", onClick: () => setView("stats"), aria: "使用统计（仅管理员）", ico: "i-stats" })}
         {/* V4.5.3 被测系统：可折叠父项 + 子项外链（TARGETS 数组，后续追加即可） */}
@@ -319,6 +327,7 @@ export default function App() {
 
       <TaskDetailDrawer />
       {scShow && <SelfCheckToast runId={scRun} onDone={() => setScShow(false)} />}
-    </div>
+      </div>
+    </>
   );
 }

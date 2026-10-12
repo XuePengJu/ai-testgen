@@ -7,6 +7,55 @@ body {
   color: #1f2329;
 }
 
+/* ===== V9.1 演示站提示条（仅演示实例后端注入 __AITF_DEMO__ 时渲染） ===== */
+/* 浅琥珀底 + 深琥珀字：警示语义但低侵入（V9.1.1 用户反馈实心橙喧宾夺主）；
+   文案绝对定位居中，链接/关闭按钮靠右；可关闭，关闭后环境标识
+   降级到侧栏 logo 旁徽章（.demo-env-badge）。
+   非演示站时 DemoBanner 返回 null，app-shell 保持 height:100% 不变。 */
+.demo-banner {
+  display: flex; align-items: center;
+  height: 32px; padding: 0 16px;
+  background: #fff8ec; border-bottom: 1px solid #f3ddb5;
+  color: #9a6215; font-size: 12px; font-weight: 500;
+  position: relative; z-index: 20;
+}
+/* 文案组绝对居中（不随右侧链接/关闭按钮宽度偏移） */
+.demo-banner-center {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.demo-banner-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #f59e0b; flex: none;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, .18);
+}
+.demo-banner-text { line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-banner-link {
+  margin-left: auto; color: #b06a10; text-decoration: none;
+  font-size: 12px; font-weight: 600; white-space: nowrap; flex: none;
+  padding: 2px 10px; border: 1px solid #ecd3a6; border-radius: 999px;
+  background: #fff;
+}
+.demo-banner-link:hover { background: #fdf3e0; border-color: #e3bd7e; text-decoration: none; }
+.demo-banner-close {
+  display: grid; place-items: center; width: 20px; height: 20px;
+  border: none; background: transparent; border-radius: 4px;
+  color: #c9a15e; cursor: pointer; padding: 0; flex: none;
+  margin-left: 8px;
+}
+.demo-banner-close:hover { background: rgba(154, 98, 21, .1); color: #9a6215; }
+/* 演示站：提示条（32px）下方 app-shell 用 calc 占满剩余高度 */
+body:has(.demo-banner) .app-shell { height: calc(100% - 32px); }
+/* 关闭后的环境徽章：侧栏 logo 旁小标签，hover 出完整提示 */
+.demo-env-badge {
+  background: #faeeda; color: #854f0b;
+  font-size: 11px; line-height: 1; font-weight: 500;
+  padding: 3px 6px; border-radius: 4px; white-space: nowrap; flex: none;
+}
+.rail.collapsed .demo-env-badge { display: none; }
+
 .m1-shell { min-height: 100%; display: flex; flex-direction: column; }
 .m1-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -205,10 +254,14 @@ body {
   font-family: inherit; transition: border-color .18s, color .18s, background .18s;
 }
 .welcome .sample-chip:hover { border-color: #165dff; color: #165dff; background: #f0f7ff; }
+/* BugFix：单卡时水平居中（原固定两列网格导致唯一卡片悬在左列）。
+   flex 方案：双卡并排等宽（273px ≈ 原网格单列 (560-14)/2，与改版前一致），
+   单卡时 justify-content:center 居中；总宽受 .welcome max-width:560px 约束不溢出。 */
 .welcome .home-cards {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 14px;
   margin-top: 28px; text-align: left;
 }
+.welcome .home-cards > .home-card { flex: 0 1 273px; min-width: 0; }
 .home-card {
   background: #fff; border: 1px solid #e5e6eb; border-radius: 12px; padding: 14px 16px;
   min-width: 0;
@@ -232,7 +285,8 @@ body {
 .home-card .hc-row .pill { flex: none; }
 .home-card .hc-empty { font-size: 12px; color: #c9cdd4; padding: 8px 0; }
 @media (max-width: 640px) {
-  .welcome .home-cards { grid-template-columns: 1fr; }
+  /* 原 grid-template-columns:1fr 已随 flex 改版失效，改为单卡铺满整行 */
+  .welcome .home-cards > .home-card { flex-basis: 100%; }
 }
 
 /* ---- W3 M9 测试中心：区块 Tab（全链路测试 / 质量报告） ---- */
@@ -2098,12 +2152,16 @@ button.cl-select:hover { background: #f5f7fa; }
 
 /* ==================================================================
    V4.5 活泼浅色主题（lively-theme-redesign 设计稿·方案A 落地）：
-   主色换亮紫→天蓝渐变；侧栏白底浅色 + 马卡龙图标色块 + 渐变激活胶囊；
+   主色换亮紫→天蓝渐变；侧栏白底浅色 + 图标色块 + 渐变激活胶囊；
    侧栏空隙放贴纸。仅覆盖展示层，不碰交互逻辑。
+   V9.2：图标色块由「每个菜单一种马卡龙色」统一为品牌紫淡底（退出登录红色示警例外）。
    ================================================================== */
 :root {
   --itf-p50: #f5f3ff; --itf-p100: #ede9fe; --itf-p500: #6d5ef2; --itf-p600: #5b4be0; --itf-p700: #4c3fd1;
   --itf-grad: linear-gradient(135deg, #6d5ef2, #4f8df7);
+  /* V9.2：rail 菜单图标色块统一底色 / 图标色（退出登录 .i-out 例外，写死红色示警） */
+  --itf-tile: #efeaff;
+  --itf-tile-ico: #6d5ef2;
 }
 
 /* ---- 侧栏改浅色 ---- */
@@ -2119,20 +2177,11 @@ button.cl-select:hover { background: #f5f7fa; }
 }
 .rail .rail-btn.rail-danger:hover { background: #fee9ec; color: #e11d48; }
 
-/* ---- 马卡龙图标色块 ---- */
-.rl-ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+/* ---- V9.2 统一品牌色淡底图标色块（退出登录红色示警例外） ---- */
+.rl-ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--itf-tile); color: var(--itf-tile-ico); }
 .rail .rail-btn .rl-ico svg { width: 15px; height: 15px; }
-.i-chat   { background: #efeaff; color: #6d5ef2; }
-.i-kb     { background: #e3f6f1; color: #14b8a6; }
-.i-admin  { background: #fee9ec; color: #e11d48; }
-.i-check  { background: #fff3e4; color: #f59e0b; }
-.i-git    { background: #eceef4; color: #4b5163; }
-.i-home   { background: #e6f9ec; color: #16a34a; }
-.i-set    { background: #e8f1fe; color: #4f8df7; }
-.i-e2e    { background: #e0ecff; color: #2563eb; }
-/* W3 M8：补齐缺失的色块（原代码引用了但 CSS 未定义，图标块透明） */
-.i-cases  { background: #e8f1fe; color: #4f8df7; }
-.i-models { background: #f2e8ff; color: #7b2ff7; }
+/* V9.2：退出登录不参与统一色，保留红色示警 */
+.i-out { background: #ffeef0; color: #ef4444; }
 .rail .rail-btn.active .rl-ico { background: rgba(255, 255, 255, .22); color: #fff; }
 
 /* ---- W3 M8：侧栏贴纸（.rail-sticker，漂浮的铅笔/烧杯 emoji 残留）已移除，spacer 仅作弹性占位 ---- */
@@ -2156,13 +2205,13 @@ button.cl-select:hover { background: #f5f7fa; }
 
 /* ==================================================================
    V4.5.3 侧栏「系统」组对齐修正 + 被测系统子菜单（targets-submenu）：
-   - 退出登录补马卡龙色块，与其它行同一图标列节奏；
+   - 退出登录补红色示警色块（V9.2 起定义上移到统一色块段），与其它行同一图标列节奏；
    - 被测系统 = 可折叠父项（点击展开子项列表），子项来自 TARGETS 数组；
    - 展开态子列表走文档流（缩进 46px 与导航文字对齐）；
    - 收起态子列表变右侧白色飞出面板；≤768px 顶部横条形态为按钮下方固定面板。
    ================================================================== */
-.i-target { background: #e6f7ee; color: #10b981; }
-.i-out    { background: #ffeef0; color: #ef4444; }
+/* V9.2：.i-target / .i-out 的独立配色已移除 —— .i-target 走 .rl-ico 统一品牌紫淡底，
+   .i-out 的红色示警例外定义在本文件上方「V9.2 统一品牌色淡底图标色块」段。 */
 
 .rail .rail-btn .rail-chev { width: 14px; height: 14px; margin-left: auto; color: #a2a8b8; transition: transform .2s; flex: none; }
 .rail-sub.open > .rail-btn .rail-chev { transform: rotate(180deg); }
