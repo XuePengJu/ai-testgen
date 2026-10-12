@@ -86,6 +86,8 @@ export interface KbBaseItem {
   doc_count?: number;
   /** true = 用户个人记忆库（对话记忆沉淀，前端默认勾选且不可取消） */
   is_personal?: boolean;
+  /** 库属主用户 id：admin 视角能看到所有人的记忆库，前端据此区分「我的」与「他人的」 */
+  user_id?: number;
   /** V7.4.1：'global' = 所有人可见的共享库（前端首次进入时默认勾选，让演示态也有引用来源） */
   visibility?: string;
 }

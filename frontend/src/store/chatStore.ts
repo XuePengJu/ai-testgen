@@ -116,10 +116,11 @@ interface ChatState {
 
   /** V5.8 知识库多选检索：勾选的库 id 列表（空 = 不检索）；跨会话保留，由 ChatPanel 知识库选择器驱动 */
   kbIds: string[];
-  /** V6.0 个人记忆库 id（/api/knowledge/bases 里 is_personal=true 的库；null = 未拉到/不存在） */
+  /** V6.0 个人记忆库 id（/api/knowledge/bases 里 is_personal=true 且属主=我的库；null = 未拉到/不存在） */
   personalKbId: string | null;
-  /** V7.4.1 是否已铺开过「默认勾选」；铺过一次后不再自动回填，避免用户手动取消被覆盖 */
-  kbDefaultsApplied: boolean;
+  /** V7.4.1/V9.6 默认铺开按「用户身份(username)」记账：换账号时从头重铺，避免沿用上一用户的勾选；
+   *  同一用户内只铺一次，之后手动取消不会被反复加回。null = 尚未为任何用户铺开。 */
+  kbDefaultsUser: string | null;
   /** V6.0 手动存入记忆库进行中（发起到轮询结束全程 true，期间按钮置灰防重复） */
   memoryBusy: boolean;
   /** V6.0/V7.4.1 幂等并入默认勾选：个人记忆库 + 全部共享(global)业务库（重复调用安全） */
@@ -166,35 +167,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
   inputFocusSeq: 0,
   kbIds: [],
   personalKbId: null,
-  kbDefaultsApplied: false,
+  kbDefaultsUser: null,
   memoryBusy: false,
 
   async ensureDefaultKbs() {
+    // 无 token 直接跳过：登出/未登录时 ChatPanel 的 me?.id 依赖变化会重跑本函数，
+    // 裸调 /knowledge/bases 会 401（触发 console 错误 + aitf-logout-invalid 事件）
+    const snap = getAuthSnapshot();
+    if (!snap.token) return;
     try {
       const r = await api(API + "/knowledge/bases");
       if (!r.ok) return;
       const d = (await r.json()) as { items?: KbBaseItem[] };
       const items = Array.isArray(d?.items) ? d.items : [];
-      const personal = items.find((k) => k?.is_personal && k.id);
+      // 个人库判定：admin 能看到所有人的记忆库，必须按属主过滤出「我的」那一个；
+      // 非 admin 后端列表只含 global + 自己的库，is_personal 即本人库。
+      const isAdmin = snap.me?.role === "admin";
+      const meId = snap.me?.id ?? null;
+      const isMine = (k: KbBaseItem) =>
+        !!k.is_personal && (!isAdmin || (k.user_id != null && k.user_id === meId));
+      const personal = items.find((k) => k?.id && isMine(k));
 
-      // V7.4.1 首次铺开默认勾选：个人记忆库 + 全部共享(global)业务库。
-      // 为什么要默认勾共享库：V5.8 语义是「不勾选 = 不检索」，演示时访客什么
-      // 都没勾 → 回答没有任何引用来源 → 被误认为系统压根没有知识库检索能力。
-      // 只铺一次（kbDefaultsApplied），之后用户手动取消不会被反复加回。
-      if (!get().kbDefaultsApplied) {
-        const merged = new Set(get().kbIds);
-        if (personal?.id) merged.add(personal.id);
+      // V7.4.1/V9.6 默认铺开按「用户名」记账（username 比 id 稳：登录响应 id 先占位 -1，
+      // 靠 refreshMe 补真实 id；username 从响应即确定）。为什么要按用户记账：
+      // 旧版用全局布尔 kbDefaultsApplied，换账号（访客→登录）时不会重铺，
+      // 只在上一用户的勾选上「追加」新用户库 → 勾选串味（admin 看到 guest 库勾死）。
+      // 换用户 → 从头重铺；同一用户 → 只铺一次，之后手动取消不被反复加回。
+      const who = snap.me?.username ?? null;
+      if (get().kbDefaultsUser !== who) {
+        const fresh = new Set<string>();
+        if (personal?.id) fresh.add(personal.id);
         for (const k of items) {
-          if (k?.id && !k.is_personal && k.visibility === "global") merged.add(k.id);
+          if (k?.id && !k.is_personal && k.visibility === "global") fresh.add(k.id);
         }
         set({
-          kbIds: [...merged],
-          kbDefaultsApplied: true,
-          personalKbId: personal?.id ?? get().personalKbId,
+          kbIds: [...fresh],
+          kbDefaultsUser: who,
+          personalKbId: personal?.id ?? null,
         });
         return;
       }
-      // 幂等：个人库可能首次整理时才创建，之后补入并同步 personalKbId
+      // 同一用户幂等：个人库可能首次整理时才创建（或登录时 id 尚为占位 -1，
+      // refreshMe 拿到真实 id 后本函数重跑），此处补入并同步 personalKbId
       if (personal?.id) {
         if (!get().kbIds.includes(personal.id)) {
           set({ kbIds: [...get().kbIds, personal.id] });

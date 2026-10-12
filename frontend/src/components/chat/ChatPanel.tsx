@@ -94,7 +94,7 @@ export default function ChatPanel({
   const messages = useChatStore((s) => s.messages);
   const conversationId = useChatStore((s) => s.conversationId);
   // V6.0 访客判定：role 由 AuthContext 响应式下发（登录/访客切换即时生效）
-  const { role } = useAuth();
+  const { role, me } = useAuth();
   const isGuest = role === "guest";
   // W3 M8 首页驾驶舱摘要：复用 taskStore 任务列表（App 层统一 5s 轮询），客户端聚合最近 2 条
   const tasks = useTaskStore((s) => s.tasks);
@@ -209,9 +209,12 @@ export default function ChatPanel({
   }, [kbOpen, loadKbList]);
 
   // V6.0/V7.4.1：挂载即幂等并入默认勾选（个人记忆库 + 全部共享业务库，徽章计数同步）
+  // me.id/me.username 入依赖：换账号（username 变）store 按用户从头重铺；
+  // 登录/演示免密进入时 id 先是占位 -1，refreshMe 拿到真实 id 后重跑一次，
+  // 把「我的」个人库补进 kbIds（ensureDefaultKbs 幂等，重复调用安全）
   useEffect(() => {
     void ensureDefaultKbs();
-  }, [ensureDefaultKbs]);
+  }, [ensureDefaultKbs, me?.id, me?.username]);
 
   // V6.0：记忆整理完成等场景触发的库列表刷新（chatStore dispatch "kb-refresh"）
   useEffect(() => {
@@ -435,7 +438,11 @@ export default function ChatPanel({
                       <div className="kb-pop-empty">暂无可选知识库（可在「知识库」页创建）</div>
                     )}
                     {kbList.map((k) => {
-                      const personal = !!k.is_personal;
+                      // 「我的个人记忆库」才强制勾选不可取消：admin 视角列表含所有人的
+                      // 记忆库，必须按属主区分，否则他人的库也会被勾死且清不掉；
+                      // 非 admin 后端只下发 global + 自己的库，is_personal 即本人库。
+                      const personal =
+                        !!k.is_personal && (role !== "admin" || k.user_id === me?.id);
                       // 个人库强制勾选：kbIds 是否包含不影响 on 值（渲染恒亮）
                       const on = personal || kbIds.includes(k.id);
                       return (

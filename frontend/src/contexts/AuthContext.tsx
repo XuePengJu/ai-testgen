@@ -123,6 +123,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   is_active: true,
                 },
               });
+              // 补齐真实 me.id（-1 是占位；知识库「我的个人库」匹配依赖真实 id）
+              void refreshMe();
               setReady(true);
               return;
             }
