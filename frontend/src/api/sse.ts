@@ -10,6 +10,7 @@
  *   event: done   data: {"full": "...", "source": "mock|deepseek", "had_error"?: true}
  *   事件以空行（\n\n）分隔。
  */
+import { withBase } from "./client";
 
 export interface SseEvent {
   event: string;
@@ -50,7 +51,7 @@ export async function sseStream(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (snap.token) headers["Authorization"] = "Bearer " + snap.token;
 
-  const r = await fetch(path, {
+  const r = await fetch(withBase(path), {
     method: "POST",
     headers,
     body: JSON.stringify(body),

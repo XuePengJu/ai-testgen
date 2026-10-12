@@ -10,7 +10,27 @@
 import { aesGcmEncrypt, aesGcmDecrypt } from "../crypto/aesGcm";
 import { getAuthSnapshot, type AuthSnapshot } from "../contexts/authState";
 
-export const API = "/api";
+/**
+ * V9.1 子路径部署：演示站经 Nginx /demo/ 反代，浏览器侧的绝对路径 /api
+ * 会绕过前缀直击正式站后端，因此由后端注入 __AITF_API_BASE__（如 "/demo"），
+ * 前端统一在请求出口补前缀。正式站不注入 → 空串 → 行为与改造前完全一致。
+ */
+const RAW_API_BASE = (window as unknown as { __AITF_API_BASE__?: string }).__AITF_API_BASE__ || "";
+export const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+
+export const API = API_BASE + "/api";
+
+/**
+ * 给裸 "/api..." 路径补上子路径前缀（同时支持已带前缀的完整路径）。
+ * 所有网络出口（api/apiJson/downloadTaskFile/sseStream/裸 fetch）都必须过这里。
+ */
+export function withBase(path: string): string {
+  if (!API_BASE) return path;
+  if (path === "/api" || path.startsWith("/api/") || path.startsWith("/api?")) {
+    return API_BASE + path;
+  }
+  return path;
+}
 
 function cryptoOn(snap: AuthSnapshot): boolean {
   return !!(snap.token && snap.encKey && snap.me && snap.me.role !== "admin");
@@ -41,7 +61,7 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<Response
   }
   o = { ...o, headers };
 
-  const r = await fetch(path, o);
+  const r = await fetch(withBase(path), o);
 
   if (r.status === 401) {
     if (keep401) {

@@ -29,7 +29,7 @@ import {
   setAuthSnapshot,
   type AuthSnapshot,
 } from "./authState";
-import { api } from "../api/client";
+import { api, withBase } from "../api/client";
 import { getDemoMeta } from "../components/DemoBanner";
 
 type AuthMode = "login" | "register";
@@ -109,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const demo = getDemoMeta();
         if (demo?.is_demo) {
           try {
-            const r = await fetch("/api/demo/token", { method: "POST" });
+            const r = await fetch(withBase("/api/demo/token"), { method: "POST" });
             const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse>;
             if (r.ok && d.access_token) {
               apply({
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         // 静默进访客（固定共享账号）
         try {
-          const r = await fetch("/api/guest/token", { method: "POST" });
+          const r = await fetch(withBase("/api/guest/token"), { method: "POST" });
           const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse>;
           if (r.ok && d.access_token) {
             apply({
@@ -209,7 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const fd = new URLSearchParams();
       fd.append("username", username);
       fd.append("password", password);
-      const r = await fetch("/api/auth/login", { method: "POST", body: fd });
+      const r = await fetch(withBase("/api/auth/login"), { method: "POST", body: fd });
       const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse> & { detail?: string };
     if (!r.ok) throw new Error(detailOf(d) || "失败：" + r.status);
     const me: Me & { enc_key?: string } = {
@@ -229,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(
     async (username: string, email: string, password: string) => {
-      const r = await fetch("/api/auth/register", {
+      const r = await fetch(withBase("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, email, password }),
@@ -252,7 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const guest = useCallback(async () => {
-    const r = await fetch("/api/guest/token", { method: "POST" });
+    const r = await fetch(withBase("/api/guest/token"), { method: "POST" });
     const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse> & { detail?: string };
     if (!r.ok) throw new Error(detailOf(d) || "获取访客身份失败");
     apply({

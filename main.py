@@ -185,11 +185,15 @@ def index():
     # V9.0 演示站：在 </head> 前注入演示标识脚本（仅演示实例，正式站零影响）。
     # 用 <base> + data-* 标记让前端 AuthContext 感知演示模式（见 frontend 改造）。
     if demo_config.AITF_DEMO_ENABLED:
+        # __AITF_DEMO__：前端 Banner / 免登录开关；
+        # __AITF_API_BASE__：子路径前缀（前端请求出口统一补，避免打回正式站 8005）
         banner = (
             '<script>window.__AITF_DEMO__={is_demo:true,'
             f'guide_url:{json.dumps(demo_config.AITF_DEMO_GUIDE_URL)},'
             f'reset_cron:{json.dumps(f"{demo_config.AITF_DEMO_RESET_HOUR:02d}:{demo_config.AITF_DEMO_RESET_MINUTE:02d}")}'
-            '};</script>'
+            '};'
+            f'window.__AITF_API_BASE__={json.dumps(demo_config.AITF_DEMO_BASE_PATH or "")};'
+            '</script>'
         )
         html = html.replace("</head>", banner + "</head>")
     return HTMLResponse(
