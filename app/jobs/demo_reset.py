@@ -77,6 +77,15 @@ def reset_demo_data(db: Session) -> dict:
             except Exception:  # noqa: BLE001
                 logger.warning("重置后播种用户 %s 失败", u.username, exc_info=True)
 
+    # V9.4 重播种初始知识库：purge 会连 global 共享库一起清掉，这里按快照回灌
+    # （含分块与向量），保证演示站每天重置后仍有可浏览/检索的示例知识库。
+    try:
+        from app.services.demo_kb_seed import seed_demo_kb_from_config
+
+        seed_demo_kb_from_config(db)
+    except Exception:  # noqa: BLE001
+        logger.warning("重置后知识库播种失败（不影响重置其余部分）", exc_info=True)
+
     db.commit()
     return counts
 

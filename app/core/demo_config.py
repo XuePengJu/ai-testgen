@@ -58,3 +58,12 @@ AITF_DEMO_TOKEN_TTL_HOURS = int(os.getenv("AITF_DEMO_TOKEN_TTL_HOURS", "72"))
 # 1 = 连 admin 自己的业务数据也清空（推荐：演示站就该每天归零）
 # 0 = 只清非 admin 用户数据，admin 数据保留
 AITF_DEMO_PURGE_ADMIN = os.getenv("AITF_DEMO_PURGE_ADMIN", "1") == "1"
+
+# ============ 初始知识库快照（V9.4） ============
+# 每日重置会把所有用户的知识库一并清空，演示站需要一份「初始知识库」在
+# 重置后自动恢复（快照由 scripts/export_kb_snapshot.py 导出）。
+# 留空 = 不恢复（正式站/未配置实例天然 no-op）。
+AITF_DEMO_KB_SEED_DIR = os.getenv("AITF_DEMO_KB_SEED_DIR", "")
+
+# 快照知识库归属的用户 id（演示站账号 id 与源实例不同，需重映射；0/空=沿用快照原值）
+AITF_DEMO_KB_OWNER_USER_ID = int(os.getenv("AITF_DEMO_KB_OWNER_USER_ID", "0") or 0)

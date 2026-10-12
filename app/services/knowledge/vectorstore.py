@@ -137,6 +137,25 @@ def update_chunk_vectors(chunk_id: str, content: str, metadata: dict | None = No
         coll.update(ids=[chunk_id], documents=[content], embeddings=vectors)
 
 
+def upsert_raw_vectors(
+    ids: list[str],
+    embeddings: list[list[float]],
+    documents: list[str],
+    metadatas: list[dict],
+) -> None:
+    """直接按给定向量写入（不调用 Embedding 服务）。
+
+    专供「知识库快照回灌」（app/services/demo_kb_seed.py）：快照里已带
+    源实例算好的向量，演示站无需 Embedding Key 即可恢复可检索的知识库。
+    幂等（upsert）。
+    """
+    if not ids:
+        return
+    _collection().upsert(
+        ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas,
+    )
+
+
 def delete_knowledge_vectors(knowledge_id: str) -> None:
     """删除某文档的全部向量（重建索引 / 删除文档时调用）。"""
     try:
@@ -177,7 +196,18 @@ def search(
         where = {"$and": [where, {"kb_id": kb_id}]}
     if knowledge_id:
         where = {"$and": [where, {"knowledge_id": knowledge_id}]}
-    qvec = embed_texts([query])[0]
+    try:
+        qvec = embed_texts([query])[0]
+    except RuntimeError as e:
+        # 演示站通常不配 Embedding Key（避免访客消耗额度）：稠密通道直接置空，
+        # 检索由 doc_hybrid_search 的 BM25 稀疏通道兜底（快照回灌的向量只在
+        # 有 Key 时才参与排序）。正式站保持原有「显式报错」语义不动。
+        from app.core import demo_config
+
+        if demo_config.AITF_DEMO_ENABLED:
+            logger.warning("演示站未配置 Embedding，跳过稠密检索（改走 BM25）：%s", e)
+            return []
+        raise
     try:
         res = coll.query(
             query_embeddings=[qvec],
