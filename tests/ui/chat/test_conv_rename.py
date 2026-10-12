@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-pytestmark = pytest.mark.e2e_ui
+pytestmark = [pytest.mark.e2e_ui, pytest.mark.real_llm]
 
 T_LAYOUT = 10_000
 T_HIST = 10_000

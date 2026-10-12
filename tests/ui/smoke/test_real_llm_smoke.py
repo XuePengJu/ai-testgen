@@ -21,7 +21,7 @@ import re
 import pytest
 from playwright.sync_api import Page, expect
 
-pytestmark = pytest.mark.e2e_ui
+pytestmark = [pytest.mark.e2e_ui, pytest.mark.real_llm]
 
 # 与 JS 版一致的 mock 模板判定：模板文案「好的，关于「<用户原文>」，我先理一下…」
 _MOCK_RE = re.compile(r"好的，关于「.+?」，我先理一下")

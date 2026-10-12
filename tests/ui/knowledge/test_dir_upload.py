@@ -27,7 +27,7 @@ import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
-pytestmark = pytest.mark.e2e_ui
+pytestmark = [pytest.mark.e2e_ui, pytest.mark.real_llm]
 
 KB_NAME = "e2e-v511-dir-upload"
 KB_DESC = "目录上传验收临时库"

@@ -118,10 +118,12 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"username":"test","password":"test1234","email":"test@example.com"}'
 
-      # 门禁口径与本地 `pytest -m "not visual and not demo"` 一致。
+      # 门禁口径与本地 `pytest -m "not visual and not demo"` 一致，另排除 real_llm：
+      # CI 是全新 SQLite 库、无任何模型池 key，依赖真实 LLM/embedding 的用例
+      # （对话主线 / AI 标题 / 知识库入库 / 真实 LLM smoke）必然失败，见 real_llm marker。
       # 注意不能写成 `-m e2e_ui`：视觉用例同时挂了 e2e_ui + visual 两个 marker，会被一并选中。
-      - name: 跑 ui e2e（门禁口径：排除 visual / demo）
-        run: mkdir -p reports && pytest tests/ui -m "not visual and not demo" --junitxml=reports/ui-junit.xml
+      - name: 跑 ui e2e（门禁口径：排除 visual / demo / real_llm）
+        run: mkdir -p reports && pytest tests/ui -m "not visual and not demo and not real_llm" --junitxml=reports/ui-junit.xml
 
       - name: 失败时打印后端日志
         if: failure()

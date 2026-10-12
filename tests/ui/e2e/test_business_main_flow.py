@@ -38,7 +38,7 @@ import time
 import pytest
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, expect
 
-pytestmark = [pytest.mark.e2e_ui, pytest.mark.slow]
+pytestmark = [pytest.mark.e2e_ui, pytest.mark.slow, pytest.mark.real_llm]
 
 # mock 模板判定 / 失败兜底判定：与 test_real_llm_smoke.py 同源（真实回复不得命中）
 _MOCK_RE = re.compile(r"好的，关于「.+?」，我先理一下")
