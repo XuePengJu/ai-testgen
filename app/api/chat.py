@@ -270,11 +270,23 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
     import time as _time  # V7.3 埋点计时（本函数出参与 citations 均不变）
     _rag_t0 = _time.perf_counter()
     _is_guest = user.role == "guest"
-    biz_hits = (_doc_search(db, body.message, picked_biz, top_k, is_guest=_is_guest)
-                if picked_biz else [])
-    mem_hits = (_doc_search(db, body.message, [personal_kb_id], config.AITF_MEMORY_TOPK,
-                            is_guest=_is_guest)
-                if personal_kb_id else [])
+    # 检索失败降级为空：embedding 无 key / 配额耗尽 / 服务异常时，绝不让裸异常
+    # 炸穿 SSE 生成器（ASGI 截断连接 → 浏览器 ERR_INCOMPLETE_CHUNKED_ENCODING、
+    # 前端 0 回复）。与下方通道 C「失败降级为空，绝不拖垮文档检索链路」同一哲学。
+    # 实测案例：DashScope 免费额度耗尽 → embed_texts RuntimeError → 对话流全挂。
+    try:
+        biz_hits = (_doc_search(db, body.message, picked_biz, top_k, is_guest=_is_guest)
+                    if picked_biz else [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("业务库检索失败（降级跳过，本轮无业务库上下文）：%s", e)
+        biz_hits = []
+    try:
+        mem_hits = (_doc_search(db, body.message, [personal_kb_id], config.AITF_MEMORY_TOPK,
+                                is_guest=_is_guest)
+                    if personal_kb_id else [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("个人记忆库检索失败（降级跳过，本轮无记忆上下文）：%s", e)
+        mem_hits = []
     # V7.2 通道C：条目级混合检索（BM25+RRF+衰减+MMR；mock embedding 下纯 BM25）。
     # 仅注册用户启用，guest 恒关；失败降级为空，绝不拖垮文档检索链路。
     item_hits: list[dict] = []
