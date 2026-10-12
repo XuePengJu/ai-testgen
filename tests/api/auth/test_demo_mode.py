@@ -42,6 +42,23 @@ def _demo_client():
 
 
 @pytest.fixture(autouse=True)
+def _fake_static_dir(tmp_path, monkeypatch):
+    """首页用例不依赖真实前端构建产物。
+
+    CI 的 api job 不跑 npm build（dist 被 .gitignore），main.index() 直接
+    read_text(STATIC_DIR/index.html) 会 FileNotFoundError。路由在调用时读
+    main 模块属性，故把 STATIC_DIR 指向含最小 index.html 的临时目录，
+    只验证「</head> 前注入/不注入」逻辑本身。
+    """
+    import main
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><html><head><title>t</title></head><body></body></html>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main, "STATIC_DIR", tmp_path)
+
+
+@pytest.fixture(autouse=True)
 def _restore_personal_kbs():
     """演示重置会清库含每个用户的个人记忆库，测后必须还原。
 
