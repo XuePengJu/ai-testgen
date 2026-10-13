@@ -3537,3 +3537,218 @@ button.cl-select:hover { background: #f5f7fa; }
     transform: none;
   }
 }
+
+/* ==================================================================
+   ==== P1-A2 修正：撤销过度压缩（宽表横滑 + 可读字号） ====
+   P1 把 min-width 归零 + 字号压到 10.5px，表格「塞进」屏但内容被
+   ellipsis 吃掉（用例库时间/操作列、LLM 表 5 列、用户名均截断）。
+   老板拍板：能一屏放下的压到一屏且不截断；放不下的宽表保留可读字号
+   + 横向滚动，不硬塞。全部规则限 ≤768px，桌面零影响。
+     ① 用例库（6 列）：时间文案改短（TSX）+ 字号回 12px → 一屏不截断
+     ② 用户管理（7 列）：字号回 11.5px，宁可轻微横滑不截断用户名/角色
+     ③ 使用统计 LLM（8 列宽表）：字号回 12px + min-width:640 → 横滑，零截断
+     ④ 知识库操作钮：保持 P1 的修正（已无截断），不动
+   ================================================================== */
+@media (max-width: 768px) {
+  /* ---- ① 用例库表格：6 列一屏放下且不截断 ----
+     时间文案已由 CaseLibraryPage.tsx 改为「MM-DD HH:mm」，宽度大减。
+     全局 .cl-table 是 table-layout:fixed（列平分剩余宽度 → 时间/操作列被压），
+     手机改 auto 让各列按内容自适应；名称列 max-width 兜住防溢出。 */
+  .cl-table {
+    min-width: 0;
+    width: 100%;
+    font-size: 12px;
+    table-layout: auto;
+  }
+  .cl-table th,
+  .cl-table td {
+    padding: 7px 5px;
+  }
+  .cl-col-ver,
+  .cl-col-num,
+  .cl-col-st,
+  .cl-col-ops,
+  .cl-col-time {
+    width: 1%;
+    white-space: nowrap;
+  }
+  /* 操作列 5 个图标钮：手机上缩到 13px 图标 + 最小内边距，省出横向空间 */
+  .cl-col-ops .cl-op {
+    padding: 1px;
+  }
+  .cl-col-ops .cl-op svg {
+    width: 13px;
+    height: 13px;
+  }
+  /* 名称列可截断（点击/详情可看全），其余列不截断 */
+  .cl-table th:first-child,
+  .cl-table td:first-child {
+    width: auto;
+  }
+  .cl-name {
+    display: inline-block;
+    max-width: 74px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .cl-table th:first-child,
+  .cl-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: 1px 0 0 #eef0f4;
+  }
+  .cl-table th:first-child {
+    z-index: 3;
+  }
+
+  /* ---- ② 用户管理表：可读字号，宁可轻微横滑不截断 ----
+     真实类名（UserTable.tsx）：section.set-card > div.tbl-wrap > table.admin-tbl。
+     去掉 ellipsis，用户名/角色完整显示；日期列允许折行。 */
+  .admin-tbl {
+    font-size: 11.5px;
+  }
+  .admin-tbl th,
+  .admin-tbl td {
+    padding: 6px 4px;
+    white-space: nowrap;
+  }
+  .admin-tbl th {
+    font-size: 11px;
+  }
+  .admin-tbl .t-username,
+  .admin-tbl .role-badge,
+  .admin-tbl .me-tag {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+  .admin-tbl .t-date {
+    font-size: 11px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .admin-tbl .t-actions {
+    gap: 4px;
+  }
+  .admin-tbl .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .admin-page .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ---- ③ 使用统计 LLM 明细表：8 列宽表保留可读字号 + 横滑，零截断 ----
+     真实结构（StatsPage.tsx:283）：div.card[data-testid="stats-llm-recent"] > table。
+     内联样式 padding/white-space 需 !important 覆盖；容器已内联 overflowX:auto。 */
+  [data-testid="stats-llm-recent"] table {
+    font-size: 12px;
+    min-width: 640px;
+    table-layout: auto;
+  }
+  [data-testid="stats-llm-recent"] th,
+  [data-testid="stats-llm-recent"] td {
+    padding: 6px 8px !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+  }
+
+  /* ---- ④ 知识库文档行：保持 P1 修正（操作钮不越界，无截断） ---- */
+  .doc-row {
+    gap: 6px;
+    padding: 8px 8px;
+  }
+  .doc-row-meta {
+    gap: 6px;
+    font-size: 11px;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .doc-row-ops {
+    gap: 0;
+    flex-shrink: 0;
+  }
+  .doc-row-ops .btn {
+    padding-left: 3px;
+    padding-right: 3px;
+  }
+
+  /* ---- P1-B 移动端弹窗/浮层兜底（≤768px） ----
+     桌面固定尺寸弹窗在手机上溢出/被裁：登录框、提示词编辑器、任务详情抽屉、
+     各类下拉浮层。统一改为全屏/满宽，避免超出视口。 */
+
+  /* 关键前置：关闭页面级淡入动画（shell-in）。
+     该动画带 fill:both，会让 .app-main-chat 等长期保留 transform → 成为
+     position:fixed 后代的包含块，把 .pe-overlay 等全屏浮层夹在顶栏下方
+     （实测 y=52、底部溢出 52px）。手机端直接取消动画，让浮层相对视口定位。 */
+  .page-wrap,
+  .cases-page,
+  .kb-page,
+  .app-main-chat {
+    animation: none;
+  }
+
+  /* 登录 / 注册弹窗：桌面固定 360px，手机改满宽（保留 16px 安全边距） */
+  .auth-overlay {
+    padding: 16px;
+  }
+  .auth-modal {
+    width: 100%;
+    max-width: 360px;
+    padding: 20px 18px;
+    box-sizing: border-box;
+  }
+
+  /* 提示词定制弹窗：桌面 920×640，手机改全屏；列表由左栏改为顶部横条 */
+  .pe-modal {
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+  }
+  .pe-body {
+    flex-direction: column;
+  }
+  .pe-list {
+    width: 100%;
+    flex: none;
+    max-height: 132px;
+    overflow-y: auto;
+    border-right: none;
+    border-bottom: 1px solid #f0f1f3;
+  }
+  .pe-editor {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 任务详情抽屉：桌面 96vw×90vh 圆角弹窗，手机改全屏。
+     .drawer-mask 的 1.5vh/1.5vw padding 会把 100vw 抽屉推出视口 → 归零。 */
+  .drawer-mask {
+    padding: 0;
+  }
+  .task-drawer {
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  /* 各类下拉/浮层统一兜底：宽度不超过视口（留 24px 边距） */
+  .cl-move-menu,
+  .kb-pop,
+  .kb-edit-pop,
+  .kb-dropdown {
+    max-width: calc(100vw - 24px);
+  }
+}
