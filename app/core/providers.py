@@ -88,6 +88,44 @@ PROVIDERS: dict[str, dict] = {
             {"id": "doubao-1-5-vision-pro", "label": "doubao-1-5-vision-pro · 图文", "vision": True},
         ],
     },
+    "ollama": {
+        "label": "Ollama · 本地部署",
+        "base_url": "http://localhost:11434/v1",
+        "note": "本地模型零 API 费用；先 ollama pull <模型>，远端部署时把地址换成 http://<服务器IP>:11434/v1",
+        "models": [
+            {"id": "qwen3.8:8b", "label": "qwen3.8:8b · 文本主力", "vision": False},
+            {"id": "deepseek-r1:14b", "label": "deepseek-r1:14b · 推理", "vision": False},
+            {"id": "qwen3-vl:8b", "label": "qwen3-vl:8b · 图文理解", "vision": True},
+            {"id": "llama3.2-vision:11b", "label": "llama3.2-vision:11b · 图文", "vision": True},
+        ],
+    },
+    "agnes": {
+        "label": "Agnes AI · agents",
+        "base_url": "https://api.agnes-ai.cn/v1",
+        "note": "",
+        "models": [
+            {"id": "agnes-3.0-flash", "label": "agnes-3.0-flash · 文本", "vision": False},
+            {"id": "agnes-image-2.1-flash", "label": "agnes-image-2.1-flash · 图像", "vision": True},
+        ],
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "base_url": "https://api.deepseek.com",
+        "note": "OpenAI 兼容端点 https://api.deepseek.com；Anthropic 兼容端点 https://api.deepseek.com/anthropic",
+        "models": [
+            {"id": "deepseek-flash", "label": "deepseek-flash", "vision": False},
+            {"id": "deepseek-v4-pro", "label": "deepseek-v4-pro", "vision": False},
+        ],
+    },
+    "dsh_our_free": {
+        "label": "dsh-our-free · 本地模型网关",
+        "base_url": "http://127.0.0.1:18900/v1",
+        "note": "本地 combo 路由网关（集成 Word / WorkBuddy / Trae 等软件的积分模型，消耗各软件积分，并非免费）；远端部署时把地址换成 http://<服务器IP>:18900/v1",
+        "models": [
+            {"id": "combo:auto", "label": "combo:auto · 自动路由", "vision": False},
+            {"id": "combo:deepseek", "label": "combo:deepseek", "vision": False},
+        ],
+    },
     "custom": {
         "label": "自定义（OpenAI 兼容）",
         "base_url": "",
@@ -98,8 +136,10 @@ PROVIDERS: dict[str, dict] = {
 
 
 # 免费厂商：平台/用户可"只选模型、不填 Key"，由服务端环境变量 Key 兜底
-# （modelscope → MODELSCOPE_API_KEY；zhipu/zhipu_coding → ZHIPU_API_KEY）
-FREE_PROVIDERS = {"modelscope", "zhipu", "zhipu_coding"}
+# （modelscope → MODELSCOPE_API_KEY；zhipu/zhipu_coding → ZHIPU_API_KEY；
+#   ollama / dsh_our_free 为本地端点，调用层免 Key——dsh_our_free 走各软件
+#   积分额度，仅是无需 Key，不代表模型免费）
+FREE_PROVIDERS = {"modelscope", "zhipu", "zhipu_coding", "ollama", "dsh_our_free"}
 
 # Embedding 模型厂商预设（V4.0 RAG）：统一走 OpenAI 兼容 /embeddings 端点。
 # 与文本预设分开维护，避免污染对话/视觉模型下拉。

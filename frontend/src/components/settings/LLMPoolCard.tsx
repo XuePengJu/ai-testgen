@@ -15,13 +15,13 @@
  *   - 新增 / 编辑用卡内联表单而非右侧抽屉：样式与既有卡片一致、无层级与滚动逻辑、
  *     便于浏览器截图验证
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "../../api/client";
 import { usePoolStore, type PoolMode, type PoolSlot } from "../../store/poolStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import type { LLMPoolItem, LLMPoolItemIn } from "../../types";
-import { EMBED_PROVIDERS, SLOT_TITLE, circledIndex } from "./llmPresets";
+import { EMBED_PROVIDERS, SLOT_TITLE, circledIndex, FREE_PROVIDERS } from "./llmPresets";
 
 /** 稳定的空数组引用：zustand selector 返回新数组会导致无限重渲染 */
 const EMPTY: LLMPoolItem[] = [];
@@ -75,8 +75,22 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
   const [note, setNote] = useState(initial?.note || "");
   const [busy, setBusy] = useState(false);
 
+  /** 用户是否手动改过 Base URL：防止自动带出覆盖手输值（编辑态视为已定值） */
+  const urlTouched = useRef(Boolean(initial?.base_url));
+
   const preset = source[provider];
   const models = useMemo(() => preset?.models || [], [preset]);
+
+  // 修复：打开表单默认选中百炼但 Base URL 为空，需切换厂商再切回才带出。
+  // 现在挂载 / 预设就绪后自动带出默认厂商的 Base URL（用户手输过则不覆盖）。
+  useEffect(() => {
+    if (initial || urlTouched.current) return;
+    const pre = source[provider];
+    if (pre?.base_url) {
+      setBaseUrl(pre.base_url);
+      urlTouched.current = true;
+    }
+  }, [source, provider, initial]);
 
   const onProviderChange = (p: string) => {
     setProvider(p);
@@ -128,7 +142,7 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
       <label className="f-label">Base URL</label>
       <input
         value={baseUrl}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        onChange={(e) => { urlTouched.current = true; setBaseUrl(e.target.value); }}
         autoComplete="off"
         placeholder="https://…（选预设自动带出，可改）"
         data-testid={`pool-baseurl-${mode}-${slot}`}
@@ -190,6 +204,308 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
         <button className="btn-primary btn-md" disabled={busy} onClick={save}
           data-testid={`pool-save-${mode}-${slot}-${fid}`}>
           {busy ? "处理中…" : "保存"}
+        </button>
+        <button className="btn-secondary btn-md" disabled={busy} onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============ 批量新增表单（V5.12：多模型 × 多 Key，保存时平铺展开为池行） ============ */
+
+interface BatchFormProps {
+  mode: PoolMode;
+  slot: PoolSlot;
+  source: PresetMap;
+  onCancel: () => void;
+  onDone: () => void;
+}
+
+function BatchPoolForm({ mode, slot, source, onCancel, onDone }: BatchFormProps) {
+  const addBatch = usePoolStore((s) => s.addBatch);
+
+  const [provider, setProvider] = useState("bailian");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [modelInput, setModelInput] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+  const [keyInput, setKeyInput] = useState("");
+  const [keys, setKeys] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [paid, setPaid] = useState(false);
+  const [busy, setBusy] = useState(false);
+  /** 自定义模型下拉：单框兼顾输入与检索——输入文字即面板筛选条件，留空显示全部 */
+  const [modelListOpen, setModelListOpen] = useState(false);
+
+  /** 用户是否手动改过 Base URL：防止自动带出覆盖手输值 */
+  const urlTouched = useRef(false);
+
+  const preset = source[provider];
+  const presetModels = useMemo(() => preset?.models || [], [preset]);
+  const needKey = !FREE_PROVIDERS.has(provider);
+
+  // Base URL 自动带出：与单条表单同口径（新增态 + 未手输 → 带预设 URL）
+  useEffect(() => {
+    if (urlTouched.current) return;
+    const pre = source[provider];
+    if (pre?.base_url) {
+      setBaseUrl(pre.base_url);
+      urlTouched.current = true;
+    }
+  }, [source, provider]);
+
+  // 下拉面板展开时：点击面板/输入框以外区域关闭
+  useEffect(() => {
+    if (!modelListOpen) return;
+    const close = () => setModelListOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [modelListOpen]);
+
+  const onProviderChange = (p: string) => {
+    setProvider(p);
+    const pre = source[p];
+    if (pre?.base_url) {
+      setBaseUrl(pre.base_url);
+      urlTouched.current = true;
+    }
+  };
+
+  /** 把模型加进已选 chips（去重） */
+  const pushModel = (v: string) => {
+    if (models.includes(v)) {
+      toast("该模型已在列表");
+      return false;
+    }
+    setModels((m) => [...m, v]);
+    return true;
+  };
+
+  const addModel = () => {
+    const v = modelInput.trim();
+    if (!v) {
+      toast("请选择或输入模型名");
+      return;
+    }
+    if (pushModel(v)) setModelInput("");
+  };
+
+  const removeModel = (i: number) => setModels((m) => m.filter((_, j) => j !== i));
+
+  /** 面板内点选：直接入 chips，清空输入框（面板回到全量列表，方便连选） */
+  const pickModel = (id: string) => {
+    pushModel(id);
+    setModelInput("");
+  };
+
+  const addKey = () => {
+    const v = keyInput.trim();
+    if (!v) return;
+    if (keys.includes(v)) {
+      toast("该 Key 已在列表");
+      return;
+    }
+    setKeys((k) => [...k, v]);
+    setKeyInput("");
+  };
+
+  const removeKey = (i: number) => setKeys((k) => k.filter((_, j) => j !== i));
+
+  const total = models.length * (keys.length || 1);
+
+  const save = async () => {
+    if (!baseUrl.trim()) {
+      toast("Base URL 不能为空");
+      return;
+    }
+    if (!models.length) {
+      toast("请至少添加 1 个模型");
+      return;
+    }
+    if (needKey && !keys.length) {
+      toast("该厂商需至少添加 1 个 API Key（免费厂商可留空）");
+      return;
+    }
+    setBusy(true);
+    // 模型优先 × Key 笛卡尔积：同模型的多个 Key 相邻，撞限流换下一条时无缝轮换；
+    // Key 留空 = 平台兜底（免费厂商），单条 api_key 传空串
+    const bodies: LLMPoolItemIn[] = [];
+    for (const m of models) {
+      for (const k of keys.length ? keys : [""]) {
+        bodies.push({
+          provider,
+          base_url: baseUrl.trim(),
+          model: m,
+          api_key: k,
+          paid,
+          note: note.trim(),
+        });
+      }
+    }
+    const r = await addBatch(mode, slot, bodies);
+    setBusy(false);
+    if (r && r.ok > 0) onDone();   // 全部失败 / 全部重复 → 留在表单让用户调整
+  };
+
+  return (
+    <div className="pool-form" data-testid={`pool-form-${mode}-${slot}-new`}>
+      <label className="f-label">厂商预设</label>
+      <div className="select-wrap">
+        <select
+          value={provider}
+          onChange={(e) => onProviderChange(e.target.value)}
+          data-testid={`pool-provider-${mode}-${slot}`}
+        >
+          {Object.entries(source).map(([id, p]) => (
+            <option key={id} value={id}>{p.label}</option>
+          ))}
+          {!source[provider] && <option value={provider}>{provider}（当前值）</option>}
+        </select>
+        <ChevronDown className="chevron" size={16} />
+      </div>
+
+      <label className="f-label">Base URL</label>
+      <input
+        value={baseUrl}
+        onChange={(e) => { urlTouched.current = true; setBaseUrl(e.target.value); }}
+        autoComplete="off"
+        placeholder="https://…（选预设自动带出，可改）"
+        data-testid={`pool-baseurl-${mode}-${slot}`}
+      />
+
+      {/* 区块 ①：厂商与模型（可添加多个；自定义下拉展示全部预设模型，不按输入框过滤） */}
+      <div className="pool-batch-section">
+        <div className="pool-batch-title">
+          厂商与模型
+          <span className="sub">可添加多个，批量共用该厂商与端点</span>
+        </div>
+        <div className="pool-model-picker" onClick={(e) => e.stopPropagation()}>
+          <div className="pool-add-row">
+            <input
+              value={modelInput}
+              onChange={(e) => { setModelInput(e.target.value); setModelListOpen(true); }}
+              onFocus={() => setModelListOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); addModel(); }
+                if (e.key === "Escape") setModelListOpen(false);
+              }}
+              placeholder="输入即检索模型，▾ 看全部，也可手输新模型"
+              data-testid={`pool-batch-model-${mode}-${slot}`}
+            />
+            <button type="button" className="btn-ghost-icon" title="展开全部预设模型"
+              aria-label="展开全部预设模型"
+              aria-expanded={modelListOpen}
+              onClick={() => setModelListOpen((v) => !v)}
+              data-testid={`pool-batch-model-list-${mode}-${slot}`}>
+              ▾
+            </button>
+            <button type="button" className="btn-secondary btn-md btn-pool-add"
+              onClick={addModel}
+              data-testid={`pool-batch-model-add-${mode}-${slot}`}>
+              ＋添加
+            </button>
+            {/* 面板挂在输入行内定位：top:100% 紧贴输入框下沿（挂在整块上会被 chips 行隔开） */}
+            {modelListOpen && (
+              <div className="pool-model-panel" data-testid={`pool-model-panel-${mode}-${slot}`}>
+                <ul>
+                  {presetModels
+                    .filter((m) => {
+                      const f = modelInput.trim().toLowerCase();
+                      return !f || m.id.toLowerCase().includes(f) || m.label.toLowerCase().includes(f);
+                    })
+                    .map((m) => (
+                      <li key={m.id} onClick={() => pickModel(m.id)}>
+                        <b>{m.id}</b>
+                        <span>{m.label}</span>
+                      </li>
+                    ))}
+                  {modelInput.trim() && presetModels.every((m) => {
+                    const f = modelInput.trim().toLowerCase();
+                    return !(m.id.toLowerCase().includes(f) || m.label.toLowerCase().includes(f));
+                  }) && (
+                    <li className="empty">无匹配预设模型，回车或点「＋添加」手输</li>
+                  )}
+                  {presetModels.length === 0 && (
+                    <li className="empty">该厂商无预设模型，直接手输即可（如接入点 ID ep-xxx）</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+          <div className="pool-chips">
+            {models.length === 0 && <span className="pool-chip-empty">尚未添加模型</span>}
+            {models.map((m, i) => (
+              <span key={m} className="pool-chip model">
+                {m}
+                <button type="button" title="移除该模型" aria-label={`移除模型 ${m}`}
+                  onClick={() => removeModel(i)}>×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 区块 ②：API Key（可添加多个，独立区块） */}
+      <div className="pool-batch-section">
+        <div className="pool-batch-title">
+          API Key
+          <span className="sub">可添加多个；{needKey ? "该厂商必填" : "留空走平台兜底"}</span>
+        </div>
+        <div className="pool-add-row">
+          <input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addKey(); } }}
+            autoComplete="new-password"
+            placeholder="sk-…（免费厂商可留空，由平台提供）"
+            data-testid={`pool-batch-key-${mode}-${slot}`}
+          />
+          <button type="button" className="btn-secondary btn-md btn-pool-add"
+            onClick={addKey}
+            data-testid={`pool-batch-key-add-${mode}-${slot}`}>
+            ＋添加
+          </button>
+        </div>
+        <div className="pool-chips">
+          {keys.length === 0 && (
+            <span className="pool-chip-empty">{needKey ? "未添加 Key，保存会被拒绝" : "未填 Key = 平台兜底"}</span>
+          )}
+          {keys.map((k, i) => (
+            <span key={k} className="pool-chip key">
+              {`****${k.slice(-4)}`}
+              <button type="button" title="移除该 Key" aria-label="移除该 API Key"
+                onClick={() => removeKey(i)}>×</button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {preset?.note && <div className="hint-line">{preset.note}</div>}
+
+      <label className="f-label">备注</label>
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        autoComplete="off"
+        maxLength={64}
+        placeholder="如：主用 / 限流备用（仅自己可见）"
+      />
+
+      <label className="pool-paid-row">
+        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
+        <span>付费模型（会产生费用，列表显示橙色徽标）</span>
+      </label>
+
+      <div className="pool-expand-tip" data-testid={`pool-batch-tip-${mode}-${slot}`}>
+        保存后将创建 {total} 条：{models.length} 模型 × {keys.length || 1}
+        {keys.length ? " Key" : "（Key 留空 = 平台兜底）"}，同模型的 Key 相邻排列
+      </div>
+
+      <div className="llm-btnrow">
+        <button className="btn-primary btn-md" disabled={busy}
+          onClick={() => void save()}
+          data-testid={`pool-save-${mode}-${slot}-new`}>
+          {busy ? "处理中…" : `批量保存${total > 1 ? `（${total} 条）` : ""}`}
         </button>
         <button className="btn-secondary btn-md" disabled={busy} onClick={onCancel}>取消</button>
       </div>
@@ -423,10 +739,9 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
       )}
 
       {editing === "new" ? (
-        <PoolItemForm
+        <BatchPoolForm
           mode={mode}
           slot={slot}
-          initial={null}
           source={source}
           onCancel={() => setEditing(null)}
           onDone={() => { setEditing(null); afterWrite(); }}

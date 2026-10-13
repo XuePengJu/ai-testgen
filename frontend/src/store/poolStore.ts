@@ -26,6 +26,13 @@ export interface PoolTestResult {
   model?: string | null;
 }
 
+/** 批量添加结果（V5.12）：成功 / 重复跳过 / 失败明细 */
+export interface PoolBatchAddResult {
+  ok: number;
+  dup: number;
+  fail: string[];
+}
+
 const keyOf = (mode: PoolMode, slot: PoolSlot) => `${mode}:${slot}`;
 const basePath = (mode: PoolMode) => (mode === "platform" ? "/llm/platform-pool" : "/llm/pool");
 
@@ -36,6 +43,8 @@ interface PoolState {
   /** force=false 时若已加载则跳过（进入页面用）；写操作后用 force=true 重拉 */
   load: (mode: PoolMode, slot: PoolSlot, force?: boolean) => Promise<void>;
   add: (mode: PoolMode, slot: PoolSlot, body: LLMPoolItemIn) => Promise<boolean>;
+  /** V5.12 批量添加：逐条 POST，409 记为重复跳过；只发一次汇总 toast，最后统一重拉 */
+  addBatch: (mode: PoolMode, slot: PoolSlot, bodies: LLMPoolItemIn[]) => Promise<PoolBatchAddResult | null>;
   update: (mode: PoolMode, slot: PoolSlot, id: number, body: LLMPoolItemIn) => Promise<boolean>;
   remove: (mode: PoolMode, slot: PoolSlot, id: number) => Promise<boolean>;
   toggle: (mode: PoolMode, slot: PoolSlot, id: number, enabled: boolean) => Promise<boolean>;
@@ -71,6 +80,48 @@ export const usePoolStore = create<PoolState>((set, get) => ({
     toast("已添加到模型池");
     await get().load(mode, slot, true);
     return true;
+  },
+
+  async addBatch(mode, slot, bodies) {
+    const out: PoolBatchAddResult = { ok: 0, dup: 0, fail: [] };
+    for (const body of bodies) {
+      let r: Response;
+      try {
+        r = await api(`${API}${basePath(mode)}/${slot}`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      } catch {
+        // 401 会在 api() 内走登出流程后 throw；网络错误兜底计入失败
+        out.fail.push(`${body.model}: 网络错误`);
+        continue;
+      }
+      if (r.ok) {
+        out.ok++;
+        continue;
+      }
+      let detail = `HTTP ${r.status}`;
+      try {
+        const d = (await r.json()) as { detail?: unknown };
+        if (typeof d?.detail === "string") detail = d.detail;
+      } catch { /* 非 JSON 错误体 */ }
+      if (r.status === 409) {
+        out.dup++;                 // 同端点 + 同模型 + 同 Key：静默跳过
+      } else {
+        out.fail.push(`${body.model}: ${detail}`);
+      }
+    }
+    if (out.ok > 0) await get().load(mode, slot, true);
+    const parts = [`成功 ${out.ok} 条`];
+    if (out.dup) parts.push(`跳过重复 ${out.dup} 条`);
+    if (out.fail.length) parts.push(`失败 ${out.fail.length} 条`);
+    if (out.ok > 0 || out.dup > 0) {
+      toast(parts.join(" · "));
+      if (out.fail.length) toast(`失败明细：${out.fail[0]}${out.fail.length > 1 ? ` 等 ${out.fail.length} 条` : ""}`);
+    } else if (out.fail.length) {
+      toast(out.fail[0]);
+    }
+    return out;
   },
 
   async update(mode, slot, id, body) {

@@ -59,6 +59,12 @@ export const SLOT_TITLE: Record<string, { title: string; sub: string }> = {
 };
 
 /**
+ * 免费厂商清单（V5.12）：与后端 app/core/providers.py 的 FREE_PROVIDERS 保持一致。
+ * 批量新增时非免费厂商必须至少填 1 个 Key（前端先行校验，后端仍兜底）。
+ */
+export const FREE_PROVIDERS = new Set(["modelscope", "zhipu", "zhipu_coding", "ollama", "dsh_our_free"]);
+
+/**
  * 中文圈号序号（① ② ③…）：展示「池内优先第几条」。
  * 序号即优先级，与池卡列表行号一一对应；超过 20 退化为 #n。
  */
