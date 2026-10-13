@@ -30,7 +30,9 @@ function fmtTime(s?: string | null): string {
   const d = parseServerTime(s);
   if (!d) return "";
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  // P1-A2：手机端时间列宽度有限，去掉年份，只保留「MM-DD HH:mm」。
+  // 年份在列表语境下无区分度（用例集都是近期资产），完整时间可从详情查看。
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /** 评审状态徽章 */
