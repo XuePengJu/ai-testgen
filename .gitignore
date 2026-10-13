@@ -43,6 +43,9 @@ venv/
 .envrc
 .direnv/
 
+# 本地改动备份（改前 cp 的快照目录，不入库）
+backup/
+
 # 本地向量库数据（Chroma 持久化，不入库）
 vectors/
 

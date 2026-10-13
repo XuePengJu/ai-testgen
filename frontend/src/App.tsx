@@ -23,7 +23,7 @@ import { useEffect, useState } from "react";
 import {
   Shield, ShieldCheck, Loader2, LogOut, Cpu,
   BookOpen, MessageSquare, UserPlus, ChevronsLeft, ChevronsRight,
-  Boxes, ChevronDown, ExternalLink, Library, BarChart3, Globe, Users,
+  Boxes, ChevronDown, ExternalLink, Library, BarChart3, Globe, Users, Menu, X,
 } from "lucide-react";
 import { useAuth } from "./hooks/useAuth";
 import { useChatStore } from "./store/chatStore";
@@ -79,7 +79,18 @@ export default function App() {
   const newConversation = useChatStore((s) => s.newConversation);
   const refreshTasks = useTaskStore((s) => s.refresh);
   const [view, setView] = useState<View>(() => normalizeView(localStorage.getItem("aitf_view")));
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+  const [mobileTargetsOpen, setMobileTargetsOpen] = useState<boolean>(false);
   useEffect(() => { localStorage.setItem("aitf_view", view); }, [view]);
+
+  /** 移动端抽屉打开时允许 Esc 快速退出导航。 */
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // V4.3 侧边栏折叠态（默认展开，记忆用户选择）
   const [railCollapsed, setRailCollapsed] = useState(
@@ -149,6 +160,29 @@ export default function App() {
   const [scShow, setScShow] = useState(false);
   const runSelfCheck = () => { setScShow(true); setScRun((n) => n + 1); };
 
+  const viewTitles: Record<View, string> = {
+    main: "AI 会话",
+    cases: "用例库",
+    knowledge: "知识库",
+    models: "模型配置",
+    settings: "个人中心",
+    admin: "用户管理",
+    stats: "使用统计",
+  };
+  const mobileNavTitle: string = viewTitles[view];
+  const navigateFromMobile = (nextView: View): void => {
+    setView(nextView);
+    setMobileNavOpen(false);
+  };
+  const runMobileSelfCheck = (): void => {
+    runSelfCheck();
+    setMobileNavOpen(false);
+  };
+  const handleMobileLogout = (): void => {
+    logout();
+    setMobileNavOpen(false);
+  };
+
   if (!ready) {
     return <div className="m1-loading">加载中…</div>;
   }
@@ -182,7 +216,122 @@ export default function App() {
   return (
     <>
       <DemoBanner />
-      <div className="app-shell">
+      <div className={"app-shell" + (mobileNavOpen ? " mobile-nav-open" : "")}>
+      <header className="mobile-topbar">
+        <button
+          className="mobile-nav-trigger"
+          type="button"
+          onClick={() => setMobileNavOpen((isOpen) => !isOpen)}
+          aria-label="打开应用菜单"
+          aria-expanded={mobileNavOpen}
+          aria-controls="mobile-app-navigation"
+        >
+          {mobileNavOpen ? <X size={22} /> : <Menu size={22} />}
+        </button>
+        <div className="mobile-nav-title">{mobileNavTitle}</div>
+        {me && role ? (
+          <button
+            className="mobile-user-trigger"
+            type="button"
+            onClick={() => navigateFromMobile("settings")}
+            aria-label="打开个人中心"
+          >
+            {role === "guest" ? <UserPlus size={18} /> : me.username.slice(0, 1).toUpperCase()}
+          </button>
+        ) : (
+          <button
+            className="mobile-user-trigger"
+            type="button"
+            onClick={() => showLogin("login")}
+            aria-label="登录或注册"
+          >
+            <Users size={18} />
+          </button>
+        )}
+      </header>
+      <div
+        className="mobile-nav-backdrop"
+        aria-hidden="true"
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside id="mobile-app-navigation" className="mobile-nav-drawer" aria-label="应用导航">
+        <div className="mobile-nav-drawer-head">
+          <span>应用导航</span>
+          <button type="button" onClick={() => setMobileNavOpen(false)} aria-label="关闭应用菜单">
+            <X size={20} />
+          </button>
+        </div>
+        <nav className="mobile-nav-list" aria-label="移动端主导航">
+          <button className={view === "main" ? "active" : ""} type="button" onClick={() => navigateFromMobile("main")}>
+            <MessageSquare size={18} />AI 会话
+          </button>
+          <button className={view === "cases" ? "active" : ""} type="button" onClick={() => navigateFromMobile("cases")}>
+            <Library size={18} />用例库
+          </button>
+          {canKb && (
+            <button className={view === "knowledge" ? "active" : ""} type="button" onClick={() => navigateFromMobile("knowledge")}>
+              <BookOpen size={18} />知识库
+            </button>
+          )}
+          {canKb && (
+            <button className={view === "models" ? "active" : ""} type="button" onClick={() => navigateFromMobile("models")}>
+              <Cpu size={18} />模型配置
+            </button>
+          )}
+          {role === "admin" && (
+            <button className={view === "admin" ? "active" : ""} type="button" onClick={() => navigateFromMobile("admin")}>
+              <Users size={18} />用户管理
+            </button>
+          )}
+          {role === "admin" && (
+            <button className={view === "stats" ? "active" : ""} type="button" onClick={() => navigateFromMobile("stats")}>
+              <BarChart3 size={18} />使用统计
+            </button>
+          )}
+          <div className={"mobile-target" + (mobileTargetsOpen ? " open" : "")}>
+            <button
+              className="mobile-target-toggle"
+              type="button"
+              onClick={() => setMobileTargetsOpen((isOpen) => !isOpen)}
+              aria-expanded={mobileTargetsOpen}
+            >
+              <Boxes size={18} />被测系统<ChevronDown size={18} />
+            </button>
+            <div className="mobile-target-list">
+              {TARGETS.map((target) => (
+                <a
+                  key={target.url}
+                  href={target.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileNavOpen(false)}
+                >
+                  <ExternalLink size={16} />{target.name}
+                </a>
+              ))}
+            </div>
+          </div>
+          <button type="button" onClick={runMobileSelfCheck}>
+            {scShow ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />}系统自检
+          </button>
+        </nav>
+        <div className="mobile-nav-account">
+          {!me || !role ? (
+            <button type="button" onClick={() => { showLogin("login"); setMobileNavOpen(false); }}>
+              <UserPlus size={18} />登录 / 注册
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={() => navigateFromMobile("settings")}>
+                <Users size={18} />个人中心 · {me.username}
+              </button>
+              <button className="mobile-nav-danger" type="button" onClick={handleMobileLogout}>
+                <LogOut size={18} />退出登录
+              </button>
+            </>
+          )}
+        </div>
+      </aside>
       {/* V4.3 左侧可折叠侧边栏：默认展开（图标+文字），可收起为 64px 图标态 */}
       <nav className={"rail" + (railCollapsed ? " collapsed" : "")} aria-label="主导航">
         <div className="rail-head">

@@ -12,7 +12,7 @@
  *       附件格式改由 /knowledge/supported-formats 动态下发（失败回落硬编码兜底值）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Brain, Paperclip, Lightbulb, Send, Square, Library, PenLine } from "lucide-react";
+import { Bot, Brain, Menu, Paperclip, Lightbulb, Send, Square, Library, PenLine } from "lucide-react";
 import { useChatStore } from "../../store/chatStore";
 import { useTaskStore } from "../../store/taskStore";
 import { api, API, toast } from "../../api/client";
@@ -402,6 +402,16 @@ export default function ChatPanel({
         )}
         <div className="chat-input-row">
           <div className="input-toolbar">
+            {/* 移动端 ☰：打开会话列表抽屉（桌面端由 CSS display:none 隐藏）。
+                抽屉开合状态挂在 .app-main 的 conv-open 类上，与 base.css 移动端规则联动。 */}
+            <button
+              className="gh-menu"
+              type="button"
+              aria-label="打开会话列表"
+              onClick={() => document.querySelector(".app-main")?.classList.toggle("conv-open")}
+            >
+              <Menu size={16} />
+            </button>
             <input
               ref={fileRef}
               type="file"

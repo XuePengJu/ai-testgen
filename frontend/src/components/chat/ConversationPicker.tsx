@@ -94,6 +94,14 @@ function isFreshToday(c: Conv): boolean {
   return d.getTime() >= today.getTime();
 }
 
+/**
+ * 移动端抽屉：关闭会话列表（移除 .app-main 的 conv-open 类）。
+ * 选中会话 / 点击遮罩 / 新对话 都走它，桌面端为 no-op（类不存在时 remove 无副作用）。
+ */
+function closeConvDrawer(): void {
+  document.querySelector(".app-main")?.classList.remove("conv-open");
+}
+
 export default function ConversationPicker() {
   const conversations = useChatStore((s) => s.conversations);
   const currentId = useChatStore((s) => s.conversationId);
@@ -103,6 +111,11 @@ export default function ConversationPicker() {
   const renameConversation = useChatStore((s) => s.renameConversation);
   const aiRenameConversation = useChatStore((s) => s.aiRenameConversation);
   const newConversation = useChatStore((s) => s.newConversation);
+  /** 移动端：新建会话后同样收起抽屉，露出空输入框（桌面端 closeConvDrawer 为 no-op） */
+  const onNewConversation = () => {
+    newConversation();
+    closeConvDrawer();
+  };
   const { token } = useAuth();
   const [archivedOpen, setArchivedOpen] = useState(false);
   /** V5.9 行内重命名的会话 id 与草稿值 */
@@ -223,7 +236,11 @@ export default function ConversationPicker() {
       <div
         key={c.id}
         className={`hist-item ${c.id === currentId ? "active" : ""}`}
-        onClick={() => void loadConversation(c.id)}
+        onClick={() => {
+          void loadConversation(c.id);
+          // 移动端：选中会话后收起抽屉，露出对话流
+          closeConvDrawer();
+        }}
       >
         {editing ? (
           <input
@@ -301,11 +318,13 @@ export default function ConversationPicker() {
       <aside className="side-panel conv-panel">
         <div className="side-head">
           <span>历史会话</span>
-          <button className="qtag" type="button" onClick={newConversation}>
+          <button className="qtag" type="button" onClick={onNewConversation}>
             <Plus size={14} /> 新对话
           </button>
         </div>
         <div className="hist-empty">登录或游客体验后查看历史会话</div>
+        {/* 移动端全屏遮罩（aside 内部尾部，fixed inset:0 不受父级约束；桌面端 CSS 隐藏） */}
+        <div className="conv-backdrop" onClick={closeConvDrawer} />
       </aside>
     );
   }
@@ -328,7 +347,7 @@ export default function ConversationPicker() {
     <aside className="side-panel conv-panel">
       <div className="side-head">
         <span>历史会话</span>
-        <button className="qtag" type="button" onClick={newConversation}>
+        <button className="qtag" type="button" onClick={onNewConversation}>
           <Plus size={14} /> 新对话
         </button>
       </div>
@@ -381,6 +400,8 @@ export default function ConversationPicker() {
           </>
         )}
       </div>
+      {/* 移动端全屏遮罩（aside 内部尾部，fixed inset:0 不受父级约束；桌面端 CSS 隐藏） */}
+      <div className="conv-backdrop" onClick={closeConvDrawer} />
     </aside>
   );
 }

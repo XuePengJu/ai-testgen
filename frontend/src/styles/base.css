@@ -433,12 +433,15 @@ body:has(.demo-banner) .app-shell { height: calc(100% - 32px); }
   vertical-align: -2px; animation: blink 0.9s step-start infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
-.thinking-dots span {
+/* R7：原 `.thinking-dots span`（后代选择器）误伤同容器内的文字节点
+   `.wait-label`（WaitingIndicator 的「正在思考 · Xs」），把文字压成 6×6 灰点竖排。
+   收窄为只命中 3 个跳动圆点，文字节点排除在外。 */
+.thinking-dots > span:not(.wait-label) {
   display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #a9aeb8;
   margin-right: 5px; animation: dotjump 1.2s infinite ease-in-out;
 }
-.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
-.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+.thinking-dots > span:not(.wait-label):nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots > span:not(.wait-label):nth-child(3) { animation-delay: 0.4s; }
 @keyframes dotjump { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
 
 /* 思考折叠面板 */
@@ -472,8 +475,12 @@ body:has(.demo-banner) .app-shell { height: calc(100% - 32px); }
   margin-left: auto; color: #165dff; font-size: 11.5px; padding-left: 8px;
 }
 .think-head:hover .think-hint { text-decoration: underline; }
-/* 阶段① 等待指示器：点 + 文案（超 3s 才显示秒数，避免一闪而过） */
-.thinking-dots .wait-label { color: #8f959e; font-size: 12px; margin-left: 4px; }
+/* 阶段① 等待指示器：点 + 文案（超 3s 才显示秒数，避免一闪而过）
+   R7：显式还原为正常行内文字，避免被圆点规则继承 width/height/border-radius/background。 */
+.thinking-dots .wait-label {
+  display: inline; width: auto; height: auto; border-radius: 0; background: none;
+  animation: none; color: #8f959e; font-size: 12px; margin-left: 4px;
+}
 .think-body {
   margin: 4px 0 4px 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 6px;
   color: #646a73; font-size: 12.5px; line-height: 1.7;
@@ -2573,3 +2580,914 @@ button.cl-select:hover { background: #f5f7fa; }
 .seg-tabs { margin: 0; }
 /* 卡内小标题压到页头（17px）之下，层级更清晰 */
 .set-card h3 { font-size: 15px; }
+
+/* ==================================================================
+   ==== 移动端适配 P0 ====  —— 起始标记（整体删除本区块即可回滚）
+   ------------------------------------------------------------------
+   原则（渐进式响应式）：
+     · 桌面端（>1024px 且 hover:hover 设备）零变化：本区块所有规则 100% 关在
+       `@media (max-width: 768px)` / `@media (hover: none)` / `@media (min-width: 769px)` 内
+       （min-width:769px 那一档是给 TSX 新增的接口元素 .gh-menu / .conv-backdrop
+        补桌面默认隐藏态 —— 若不写死，桌面端会凭空多出 ☰ 与遮罩，反而破坏桌面表现）。
+     · 断点只用两档：1024 / 768；既有 575/640/720/860/1080 断点一律不动。
+     · 追加在文件最末尾 → 同特异性下源码顺序靠后自然胜出，
+       无需 !important 硬压既有规则（仅 rail overflow 一处按约定用 !important 兜底，
+       因为 L2083 的 `.rail { overflow: hidden }` 与本页同档同源，保险起见显式覆盖）。
+
+   【与 TSX 侧的接口约定】（勿改名，改名需同步本区块）
+     · ☰ 按钮：class `gh-menu`，位于 `.input-toolbar` 内（ChatPanel.tsx），桌面隐藏、手机端出现。
+     · 抽屉开关：JS 在 `.app-main` 上 toggle `conv-open` 类。
+     · 遮罩：`.conv-backdrop` 常驻 DOM（是 aside.conv-panel 的最后一个子节点），CSS 控制显隐。
+     · rail active 项横滚定位（§6）：纯 CSS 无法实现，由 TSX 侧 scrollIntoView 负责。
+   ================================================================== */
+
+/* ---- §0 桌面兜底：接口元素在桌面端不出现（>768px 一律隐藏） ---- */
+@media (min-width: 769px) {
+  .gh-menu { display: none; }
+  .conv-backdrop { display: none; }
+}
+
+/* ---- §1 顶部 rail 横向滚动（P0） ----
+   既有形态：≤768px 时 rail 变成 56px 顶部…栏（L1991-1997 / L2082-2091）溢出。 */
+@media (max-width: 768px) {
+  .rail {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none;          /* Firefox */
+    -webkit-overflow-scrolling: touch;
+  }
+  .rail::-webkit-scrollbar { display: none; }   /* WebKit */
+  /* 弹性占位块会吃掉溢出（flex:1 → 永不产生横向滚动），手机档隐藏 */
+  .rail-spacer { display: none; }
+  /* rail 内所有直接子项禁止收缩，保证是「溢出可滚」而不是「挤扁」 */
+  .rail > * { flex: none; }
+  .rail-btn, .rail-user, .rail-login { flex: none; }
+}
+
+/* ---- §2 视口高度 100dvh + 刘海安全区 ----
+   100vh 在 iOS Safari 上等于「地址栏收起后的高度」，键盘/滚动时内容被裁；
+   dvh 跟随动态视口。旧浏览器回退顺序：先 100vh 再 100dvh。 */
+@media (max-width: 768px) {
+  html, body, #root { height: 100vh; height: 100dvh; }
+  .app-shell { height: 100vh; height: 100dvh; }
+  /* 演示站顶部提示条实测 32px（.demo-banner，L15-21），沿用同一数值做 dvh 版 */
+  body:has(.demo-banner) .app-shell { height: calc(100vh - 32px); height: calc(100dvh - 32px); }
+  /* ≤768px 时 rail 是 flex 列的最后一项（.app-body order:1 / .rail order:2）
+     → 安全区由 rail 承担；padding-bottom 会切进 56px 内高，故同步撑高 */
+  .rail {
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* 说明：输入区不再另加 env(safe-area-inset-bottom) —— 手机档最底部元素是 rail，
+     再叠一次 inset 会在输入岛与 rail 之间凭空多出一条 34px 空隙（双重计入）。
+     若后续把 rail 改回顶部横条，则把 inset 挪到这里：
+       .chat-input-wrap { padding-bottom: calc(14px + env(safe-area-inset-bottom)); } */
+}
+
+/* ---- §3 会话页：会话列表 → 覆盖式抽屉 ----
+   结构事实（App.tsx:304 / ConversationPicker.tsx:313,342）：
+     main.app-main.app-main-chat > aside.side-panel.conv-panel + div.chat-panel
+     .conv-backdrop 在 aside 内部尾部（不是兄弟节点）→ 见下方层级处理。 */
+@media (max-width: 768px) {
+  /* 【与方案文档的一处偏差 + 理由】
+     方案写的是 `.app-main, .app-main-chat { … }`，但 grep 发现 `.app-main`
+     同时被 KnowledgePage.tsx:239 (`app-main kb-page kb-no-aside`) 复用
+     → 裸 `.app-main` 会把知识库页的 padding 也从 --shell-pad 拖成 8px。
+     这里收窄为只命中 `.app-main-chat`（会话页两个类同时存在，效果一致），
+     对其他页面零影响。 */
+  .app-main-chat {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px;
+  }
+  /* 选择器写成 `.app-main-chat > .conv-panel`（0,2,0）才能压过
+     L2534/L2539 的 `.app-main-chat > .side-panel` 卡片描边规则 */
+  .app-main-chat > .conv-panel {
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 90;
+    width: min(320px, 86vw);
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .15);
+    border: none; border-radius: 0;
+    background: #fff;
+  }
+  .app-main.conv-open .conv-panel { transform: none; }
+  /* 遮罩是 aside 的最后一个子节点（ConversationPicker.tsx:322 / :399），
+     而 transform / overflow:hidden 都会让父级成为 fixed 后代的包含块并裁剪溢出：
+       · 滑入过程中（translateX(-100%)）必须保持裁剪，否则列表会「穿」出屏幕左缘；
+       · 完全展开后放开裁剪，让 fixed 遮罩真正铺满视口。
+     不支持 :has() 的旧浏览器退回「遮罩裁剪在面板内」，仍可点击关闭，不影响可用性。 */
+  .app-main.conv-open .conv-panel:has(.conv-backdrop) { overflow: visible; }
+  /* 遮罩（z-index:1）与抽屉内容同层，需把内容抬到遮罩之上；
+     遮罩自身在 .conv-panel 形成的层叠上下文内，100vw/100dvh 覆盖整屏
+     （rail z-index:20、toast z-index:200 仍在遮罩之上/之外，行为符合预期） */
+  .conv-panel > :not(.conv-backdrop) { position: relative; z-index: 2; }
+  /* 抽屉关闭态：遮罩必须显式隐藏（≤768 档不落入 §0 的 min-width 区间） */
+  .conv-backdrop { display: none; }
+  .app-main.conv-open .conv-backdrop {
+    display: block;
+    position: fixed; top: 0; left: 0; z-index: 1;
+    width: 100vw; height: 100vh; height: 100dvh;
+    background: rgba(15, 23, 42, .4);
+  }
+  /* ☰ 按钮：手机端出现（.input-toolbar 内，flex 首项） */
+  .gh-menu {
+    display: inline-flex; flex: none;
+    align-items: center; justify-content: center;
+    width: 34px; height: 34px; padding: 0;
+    border: 1px solid #e5e6eb; border-radius: 8px;
+    background: #fff; color: #414141; cursor: pointer;
+  }
+  .gh-menu:active { background: #f0f6ff; color: #165dff; }
+}
+
+/* ---- §4 输入区 + 消息流（手机档收紧留白 / 防 iOS 聚焦缩放） ---- */
+@media (max-width: 768px) {
+  .chat-input-wrap { padding: 10px 12px 14px; }
+  /* iOS 上字号 <16px 的输入框聚焦会触发页面自动放大 → 固定 16px。
+     实测选择器为 `.chat-input-row .input-body textarea`（L631，桌面 14px/96px）；
+     高度由 ChatPanel.autoGrow 写 inline height，min-height 仅作下限，76px 即可 */
+  .chat-input-row .input-body textarea { font-size: 16px; min-height: 76px; }
+  /* 工具栏按钮较多（☰/附件/知识库/深度思考/角色组/提示词/发送），窄屏换行 */
+  .chat-input-row .input-toolbar { flex-wrap: wrap; row-gap: 6px; }
+  .role-picker { margin-left: 0; }
+  /* 知识库多选弹层（L656 桌面固定 292px，锚点 left:0）按屏宽钳制防溢出 */
+  .kb-pop { width: min(292px, calc(100vw - 24px)); }
+  .chat-stream { padding: 14px 12px; }
+}
+
+/* ---- §5 触屏交互修正（无 hover 能力的设备） ----
+   既有 hover-only 淡入的按钮在触屏上「看不见也点不到」→ 常显 + 撑热区。
+   热区扩展一律用 ::after 伪元素，不改变按钮自身尺寸与布局（侵入最小）。 */
+@media (hover: none) {
+  /* 会话行 / 任务行操作钮：由 opacity:0（L196/L201）提到常显 */
+  .h-del, .h-op { opacity: .6; }
+  /* 用例库表格行操作钮（L912 opacity:0） */
+  .cl-col-ops .cl-op { opacity: .85; }
+  /* 知识库文档行操作钮（L2418 opacity:0） */
+  .doc-row-ops { opacity: .85; }
+  /* 知识库文档卡操作钮（L1985 opacity:0）—— grep 结论：`.doc-card .dc-ops` 仅在
+     base.css 定义，TSX 侧已无渲染点（疑似 V4.4 改版遗留死样式），保留本条无害 */
+  .doc-card .dc-ops { opacity: .85; }
+  /* 分类树行删除/新增/重命名钮（L1401 opacity:0） */
+  .cat-row .h-del { opacity: .65; }
+
+  /* —— 会话行三钮热区 ——
+     桌面档三钮间距 21px（right 6 / 27 / 48），撑到 36px 必然互相覆盖，
+     被后绘制的 .h-del 抢走点击 → 触屏档把栅格拉开到 30px 并同步补右侧留白，
+     top/right 取值让 ±10px 的伪元素热区落在行内（不被 .side-panel overflow:hidden 裁掉）。
+     仅 hover:none 生效，桌面/有 hover 的设备零变化。 */
+  .hist-item { padding-right: 96px; }
+  .hist-item .h-del { top: 10px; right: 8px; }
+  .hist-item .h-op.h-ren { top: 10px; right: 38px; }
+  .hist-item .h-op.h-ai { top: 10px; right: 68px; }
+  /* 热区伪元素只挂在绝对定位的会话行按钮上：
+     · .cat-head .h-del 是 static（撑大会盖到别处），
+     · .cat-row 三钮间距 16px（撑到 36px 会互相吞点击），
+       二者只提可见度、不撑热区；
+     · .task-item 系列 grep 结论：TSX 无渲染点（base.css 遗留死样式），不处理。 */
+  .hist-item .h-del::after, .hist-item .h-op::after {
+    content: ""; position: absolute; inset: -10px;   /* ~16px 可见钮 → ≥36px 热区 */
+  }
+
+  /* —— 输入工具栏图标钮：34px → 38px 热区（间隙 8px，不会互碰） —— */
+  .chat-input-row .icon-btn { position: relative; }
+  .chat-input-row .icon-btn::after {
+    content: ""; position: absolute; inset: -2px; border-radius: inherit;
+  }
+  /* pill 类控件补到 36px 高（think-toggle 34 / role-chip 26 / prompt-btn 26） */
+  .chat-input-row .think-toggle { min-height: 36px; }
+  .chat-input-row .role-picker { padding: 4px; }
+  .chat-input-row .role-chip { height: 30px; }
+  .chat-input-row .prompt-btn { height: 30px; }
+  /* 遮罩关闭钮 / 抽屉右上区触屏友好度：qtag（新对话）撑高 */
+  .conv-panel .qtag { min-height: 32px; }
+}
+
+/* ---- §6 rail 当前项横滚定位：纯 CSS 无法实现（无「滚动到 active」选择器能力），
+   由 TSX 侧在 active 变化时对 .rail-btn.active 调 scrollIntoView({ inline: 'nearest' })。 ---- */
+
+/* ==== 移动端适配 P0 ==== —— 结束标记 */
+
+/* ==================================================================
+   ==== 移动端适配 R1 重做 ====
+   手机端不再复用桌面 rail：由 .mobile-topbar / .mobile-nav-drawer
+   承担全局导航，聊天区始终保持单列的全宽工作面。
+   ================================================================== */
+
+/* R1 新增移动导航 DOM 在桌面不参与布局或辅助技术焦点顺序。 */
+@media (min-width: 769px) {
+  .mobile-topbar,
+  .mobile-nav-trigger,
+  .mobile-nav-title,
+  .mobile-nav-backdrop,
+  aside.mobile-nav-drawer,
+  .mobile-target-toggle,
+  .mobile-target-list {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* A/H：旧 rail 是桌面导航，手机端必须完全退出布局，不能作为底栏或横滑栏。 */
+  .rail {
+    display: none !important;
+  }
+  .rail-sub,
+  .rail-submenu,
+  .rail-subitem,
+  .rail .rail-sub,
+  .rail .rail-submenu,
+  .rail .rail-sub.open .rail-submenu {
+    display: none !important;
+  }
+
+  /* B：壳层为「顶栏 + 可伸缩内容」单列；dvh 处理浏览器地址栏变化。 */
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    height: 100dvh;
+  }
+  .app-shell {
+    width: 100%;
+    min-width: 0;
+    height: 100dvh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #f5f7fa;
+  }
+  body:has(.demo-banner) .app-shell {
+    height: calc(100dvh - 32px);
+    min-height: calc(100dvh - 32px);
+  }
+  .app-body {
+    order: initial;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+  }
+
+  /* G：R1 的手机顶栏和全局导航抽屉。 */
+  .mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    display: flex;
+    flex: 0 0 52px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    height: 52px;
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top) 12px 0;
+    background: #fff;
+    border-bottom: 1px solid #e5e6eb;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  }
+  .mobile-nav-trigger {
+    display: inline-flex;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: #303548;
+    background: #f5f3ff;
+    border: 1px solid #e6e1ff;
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .mobile-nav-title {
+    min-width: 0;
+    overflow: hidden;
+    color: #1f2329;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-nav-backdrop {
+    position: fixed;
+    z-index: 209;
+    inset: 0;
+    display: block;
+    background: rgba(15, 23, 42, .42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  aside.mobile-nav-drawer {
+    position: fixed;
+    z-index: 210;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(320px, 88vw);
+    max-width: 88vw;
+    box-sizing: border-box;
+    padding: calc(14px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    color: #303548;
+    background: #fff;
+    box-shadow: 8px 0 28px rgba(15, 23, 42, .2);
+    transform: translateX(-105%);
+    transition: transform .24s ease;
+    visibility: hidden;
+  }
+  .app-shell.mobile-nav-open aside.mobile-nav-drawer {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .app-shell.mobile-nav-open .mobile-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .mobile-target-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 42px;
+    padding: 0 10px;
+    color: #303548;
+    font: inherit;
+    text-align: left;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 9px;
+  }
+  .mobile-target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0 4px;
+    padding: 4px;
+    background: #fafafa;
+    border-radius: 9px;
+  }
+  .mobile-target-list a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 8px;
+    color: #414141;
+    font-size: 13px;
+    text-decoration: none;
+    border-radius: 7px;
+  }
+
+  /* R5：抽屉中的按钮需要完整的移动导航视觉，不能继承浏览器默认 button。 */
+  aside.mobile-nav-drawer {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: #fff;
+    border-right: 1px solid #e5e7eb;
+  }
+  .mobile-nav-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 36px;
+    color: #1f2937;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .mobile-nav-drawer-head > button {
+    display: inline-flex;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: #4b5563;
+    background: #f3f4f6;
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .mobile-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  .mobile-nav-list > button,
+  .mobile-nav-list > button.mobile-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 12px;
+    box-sizing: border-box;
+    color: #374151;
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .mobile-nav-list > button > svg {
+    flex: none;
+    color: #6d5ef2;
+  }
+  .mobile-nav-list > button.active {
+    color: #5546d9;
+    background: #f0edff;
+  }
+  .mobile-nav-list > button.active > svg {
+    color: #5546d9;
+  }
+  .mobile-target {
+    width: 100%;
+  }
+  .mobile-target-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 12px;
+    box-sizing: border-box;
+    color: #374151;
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: left;
+    background: #f8fafc;
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .mobile-target-toggle > svg:first-child {
+    flex: none;
+    color: #6d5ef2;
+  }
+  .mobile-target-toggle > svg:last-child {
+    flex: none;
+    margin-left: auto;
+    color: #94a3b8;
+    transition: transform .2s ease;
+  }
+  .mobile-target.open .mobile-target-toggle > svg:last-child {
+    transform: rotate(180deg);
+  }
+  .mobile-target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 6px 0 0;
+    padding: 6px;
+    background: #fafafa;
+    border-radius: 10px;
+  }
+  .mobile-target:not(.open) .mobile-target-list {
+    display: none;
+  }
+  .mobile-target-list a,
+  .mobile-target-list button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    color: #4b5563;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    text-align: left;
+    text-decoration: none;
+    background: #fff;
+    border: 0;
+    border-radius: 8px;
+  }
+  .mobile-target-list svg {
+    flex: none;
+    color: #6d5ef2;
+  }
+  .mobile-nav-account {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid #eef0f4;
+  }
+  .mobile-nav-account > button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 12px;
+    box-sizing: border-box;
+    color: #4b5563;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: left;
+    background: #f8fafc;
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .mobile-nav-account > button > svg {
+    flex: none;
+    color: #6d5ef2;
+  }
+  .mobile-nav-account > button.mobile-nav-danger {
+    color: #be3144;
+    background: #fff1f2;
+  }
+  .mobile-nav-account > button.mobile-nav-danger > svg {
+    color: #d6455d;
+  }
+  .mobile-user-trigger {
+    display: inline-flex;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-left: auto;
+    padding: 0;
+    color: #5b4be0;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    background: #f5f3ff;
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  /* C/D：聊天页只保留一个内容轨道；会话历史改为覆盖式抽屉。 */
+  .app-main-chat {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    min-height: 0;
+    padding: 8px;
+    gap: 0;
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr) !important;
+    overflow: hidden;
+  }
+  .app-main-chat > .chat-panel,
+  .chat-panel {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    border: 0;
+    border-radius: 10px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .app-main-chat > .conv-panel {
+    position: fixed;
+    z-index: 180;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(320px, 86vw);
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: #fff;
+    border: 0;
+    border-radius: 0;
+    box-shadow: 5px 0 26px rgba(15, 23, 42, .2);
+    transform: translateX(-105%);
+    transition: transform .24s ease;
+  }
+  .app-main.conv-open .conv-panel {
+    transform: translateX(0);
+  }
+  .app-main.conv-open .conv-panel:has(.conv-backdrop) {
+    overflow: visible;
+  }
+  .conv-backdrop {
+    display: none;
+  }
+  .app-main.conv-open .conv-backdrop {
+    position: fixed;
+    z-index: 1;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 100vw;
+    height: 100dvh;
+    background: rgba(15, 23, 42, .4);
+  }
+  .conv-panel > :not(.conv-backdrop) {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* E：输入区随着聊天面板占满横向空间，文本输入优先且不会触发 iOS 缩放。 */
+  .chat-stream {
+    min-width: 0;
+    padding: 14px 12px;
+    overflow-y: auto;
+  }
+  .chat-input-wrap {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    background: #f5f7fa;
+  }
+  .chat-input-row {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 9px 10px 10px;
+    border-radius: 12px;
+  }
+  .chat-input-row .input-toolbar {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chat-input-row .input-body {
+    width: 100%;
+    min-width: 0;
+  }
+  .chat-input-row .input-body textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 72px;
+    font-size: 16px;
+  }
+
+  /* I：欢迎页与首页卡片采用内容区宽度，标题不再被桌面宽度约束折成单字列。 */
+  .welcome {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 28px auto 0;
+    padding: 0 4px;
+    box-sizing: border-box;
+  }
+  .welcome h2 {
+    font-size: clamp(24px, 7vw, 28px);
+    line-height: 1.25;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+  .welcome .welcome-sub {
+    max-width: min(100%, 520px);
+  }
+  .welcome .home-cards {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 20px;
+  }
+  .welcome .home-cards > .home-card {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+}
+
+/* ==================================================================
+   ==== R6 修复 ====
+   真机（390 / 440px）实测反馈的四个问题：
+     #1 会话列表被全屏遮罩蒙灰 → 遮罩只覆盖抽屉右侧；
+     #2 用例库表格列过宽 + 搜索区右偏 → 收窄列宽、首列吸附、搜索组靠左；
+     #3 知识库「切换知识库」被顶栏裁切 → 顶栏两行布局、下拉不被裁；
+     #4 系统自检浮层被顶栏遮挡 → 下移到顶栏之下并限高可滚动。
+     #5 全局 .toast（top:24px）撞顶栏，压住知识库切换库按钮 →
+        与 #4 同理下移到顶栏之下，并限宽避免长文案撑破视口。
+   全部规则限 ≤768px，桌面零影响。
+   ================================================================== */
+@media (max-width: 768px) {
+  /* ---- #1 会话抽屉：列表保持白底明亮，遮罩只压暗右侧内容 ----
+     .conv-backdrop 是 aside.conv-panel 的子节点；开态 aside 有 transform，
+     会成为 fixed 后代的包含块，因此这里的 left 是相对抽屉宽度而非视口。
+     抽屉宽 min(320px, 86vw) → left:100% 正好落在抽屉右缘之外。 */
+  .app-main.conv-open .conv-backdrop {
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    right: auto;
+    width: 100vw;
+    height: auto;
+    background: rgba(15, 23, 42, .38);
+  }
+  .app-main.conv-open .conv-panel {
+    background: #fff;
+  }
+  /* 抽屉内容始终在遮罩之上（遮罩只在抽屉右侧，不再压到列表） */
+  .conv-panel > :not(.conv-backdrop) {
+    position: relative;
+    z-index: 2;
+  }
+  .conv-panel .side-head {
+    background: #fff;
+  }
+  .conv-panel .hist-list {
+    background: #fff;
+  }
+
+  /* ---- #2 用例库：表格适度压缩 + 首列吸附；搜索组靠左占满一行 ----
+     真实类名（CaseLibraryPage.tsx）：.cl-head > .cl-title + .cl-toolbar >
+     (.cl-search > input + select.cl-select)；表格 .cl-table-wrap > table.cl-table，
+     列类名 .cl-col-ver/.cl-col-num/.cl-col-st/.cl-col-time/.cl-col-ops。 */
+  .cases-page {
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .cl-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .cl-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+  }
+  .cl-search {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .cl-search input {
+    width: 100%;
+    min-width: 0;
+    font-size: 16px; /* iOS 聚焦不缩放 */
+  }
+  select.cl-select {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 40%;
+    font-size: 16px;
+  }
+  .cl-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cl-table {
+    min-width: 500px;
+    font-size: 12px;
+  }
+  .cl-table th {
+    padding: 8px 8px;
+    font-size: 11.5px;
+  }
+  .cl-table td {
+    padding: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cl-col-ver { width: 52px; }
+  .cl-col-num { width: 48px; }
+  .cl-col-st { width: 96px; }
+  .cl-col-time { width: 92px; }
+  .cl-col-ops { width: 108px; }
+  /* 首列（用例集名称）吸附左侧，横滑时始终可见 */
+  .cl-table th:first-child,
+  .cl-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: 1px 0 0 #eef0f4;
+  }
+  .cl-table th:first-child {
+    z-index: 3;
+  }
+  .cl-name {
+    font-size: 12.5px;
+    max-width: 100%;
+  }
+
+  /* ---- #3 知识库顶栏：切换库入口完整可见，下拉不被裁切 ----
+     真实类名（KnowledgePage.tsx header.kb-topbar > KbSelector(.kb-select > .kb-trigger)
+     + .pill-tabs + .kb-top-actions）。原 max-width:768px 规则给 .kb-topbar 加了
+     overflow-x:auto，导致下拉被横向滚动容器裁掉。 */
+  .kb-topbar {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 8px 12px;
+    overflow: visible;
+  }
+  .kb-topbar .kb-select {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .kb-topbar .kb-trigger {
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+  .kb-topbar .pill-tabs {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .kb-topbar .pill-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .kb-topbar .kb-top-actions {
+    margin-left: 0;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+  /* 下拉改为固定定位，脱离顶栏的 overflow/层叠上下文，永不被裁切 */
+  .kb-select .kb-dropdown {
+    position: fixed;
+    z-index: 230;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  /* ---- #4 系统自检浮层：下移到手机顶栏之下，限高可滚动 ----
+     真实类名（SelfCheckToast.tsx）：.sc-zone > .sc-toast（.sc-head/.sc-items/.sc-acts）。 */
+  .sc-zone {
+    position: fixed;
+    top: calc(52px + env(safe-area-inset-top) + 8px);
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+    z-index: 230;
+  }
+  .sc-toast {
+    max-height: calc(100dvh - 52px - env(safe-area-inset-top) - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sc-acts button {
+    min-height: 34px;
+  }
+
+  /* ---- #5 全局 toast：避开顶栏 + 限宽，勿压住顶栏控件 ---- */
+  .toast {
+    top: calc(52px + env(safe-area-inset-top) + 8px);
+    left: 12px;
+    right: 12px;
+    transform: translateY(-8px);
+    max-width: calc(100vw - 24px);
+    text-align: center;
+    font-size: 13px;
+  }
+  .toast.show {
+    transform: translateY(0);
+  }
+
+  /* 知识库页另有一层两行高顶栏（kb-topbar，≈105px），顶部 toast 仍会压住
+     「切换知识库」触发器；该页无底部输入区，故 toast 改到底部显示。
+     ToastHost 与 App 是 #root 下的兄弟节点，用 :has() 判定当前是否知识库页。 */
+  #root:has(.kb-topbar) .toast {
+    top: auto;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translateY(8px);
+  }
+  #root:has(.kb-topbar) .toast.show {
+    transform: none;
+  }
+}
