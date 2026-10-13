@@ -3751,4 +3751,75 @@ button.cl-select:hover { background: #f5f7fa; }
   .kb-dropdown {
     max-width: calc(100vw - 24px);
   }
+
+  /* ---- P1-C 演示站横幅 + 输入工具栏（≤768px） ---- */
+
+  /* ① 演示站横幅：桌面用绝对定位把文案居中（left:50% + translate），
+     390px 下 nowrap 文案（317px）必然撞上右侧「前往正式站」链接（重叠 103px）。
+     手机改流式：取消绝对定位，center 参与 flex 占满剩余宽度，链接靠右不重叠。 */
+  .demo-banner {
+    height: auto;
+    min-height: 32px;
+    padding: 6px 12px;
+    gap: 8px;
+  }
+  .demo-banner-center {
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+  }
+  .demo-banner-text {
+    min-width: 0;
+  }
+  .demo-banner-link {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+  }
+  /* 横幅高度由 32px 固定改为 auto（文案换行时变高），calc(100dvh - 32px) 不再准确。
+     P1-C 曾误用 `flex:1 1 auto`，但 #root 默认 display:block，flex 无效 →
+     app-shell 塌缩成内容高度，底部留白（390px 实测 149px）。
+     正解：先把 #root 改成 flex 列容器，app-shell 才能自适应填充剩余高度。 */
+  #root {
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell,
+  body:has(.demo-banner) .app-shell {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  /* ② 输入工具栏：收紧间距/padding，让所有按钮一行放下（不换行）。
+     .input-toolbar 的 wrap 在 P0 加过（base.css:2711/3236），这里覆盖为 nowrap。 */
+  .chat-input-row .input-toolbar {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .chat-input-row .input-toolbar .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .chat-input-row .input-toolbar .role-picker {
+    padding: 3px;
+    gap: 3px;
+    min-width: 0;
+  }
+  .chat-input-row .input-toolbar .role-chip {
+    height: 28px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  .chat-input-row .input-toolbar .think-toggle {
+    padding: 0 7px;
+  }
+  .chat-input-row .input-toolbar .prompt-btn {
+    height: 28px;
+    padding: 0 6px;
+    margin-left: 0;
+  }
 }
