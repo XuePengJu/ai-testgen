@@ -3639,6 +3639,17 @@ button.cl-select:hover { background: #f5f7fa; }
      桌面固定尺寸弹窗在手机上溢出/被裁：登录框、提示词编辑器、任务详情抽屉、
      各类下拉浮层。统一改为全屏/满宽，避免超出视口。 */
 
+  /* 关键前置：关闭页面级淡入动画（shell-in）。
+     该动画带 fill:both，会让 .app-main-chat 等长期保留 transform → 成为
+     position:fixed 后代的包含块，把 .pe-overlay 等全屏浮层夹在顶栏下方
+     （实测 y=52、底部溢出 52px）。手机端直接取消动画，让浮层相对视口定位。 */
+  .page-wrap,
+  .cases-page,
+  .kb-page,
+  .app-main-chat {
+    animation: none;
+  }
+
   /* 登录 / 注册弹窗：桌面固定 360px，手机改满宽（保留 16px 安全边距） */
   .auth-overlay {
     padding: 16px;
