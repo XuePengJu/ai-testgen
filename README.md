@@ -1,6 +1,8 @@
-# ai-testgen — AI 对话 + 测试用例生成 + 知识库平台
+# ai-testgen — 全栈 AI 测试平台
 
 > 求职作品集「用 AI 重新定义测试效率」双产品之二：**ai-testgen**（AI 对话 · 用例生成 · 知识库）。
+> **多模型池调度 · RAG 知识库 · 用例自动生成 · 可回放 E2E 测试** | Python FastAPI + React18 + TypeScript + ChromaDB
+> 🌐 在线体验：https://ai-testgen.agentest.vip ｜ ✅ 625+ pytest 用例分层门禁（unit / api / ui 全绿）
 > 原姊妹项目 **ai-testflow**（页面探索 · 自动化执行 · 质量看板，已于 2026-09-30 拆分后退役），两产品完全独立（独立代码库/账号/数据库）。
 
 ## 功能
