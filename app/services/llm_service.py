@@ -622,11 +622,37 @@ def vision_enrich(text: str, vision_client: OpenAICompatClient) -> tuple[str, in
 def test_connectivity(base_url: str, api_key: str, model: str, kind: str = "chat") -> dict:
     """发一条最小请求验证 Key / 端点 / 模型可用。
 
-    kind="chat"：POST {base_url}/chat/completions；kind="embedding"：POST {base_url}/embeddings。
+    kind="chat"：POST {base_url}/chat/completions
+    kind="embedding"：POST {base_url}/embeddings
+    kind="rerank"：POST {base_url}/rerank（OpenAI 风格，body: model / query / documents）
     """
     import time
     t0 = time.time()
     try:
+        if kind == "rerank":
+            import httpx
+            url = base_url.rstrip("/") + "/rerank"
+            resp = httpx.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "query": "接口测试",
+                    "documents": ["接口连通性测试文档一", "接口连通性测试文档二"],
+                    "top_n": 2,
+                },
+                timeout=20.0,
+            )
+            if resp.status_code != 200:
+                raise LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            data = resp.json()
+            hits = data.get("results") or data.get("data") or []
+            return {
+                "ok": True,
+                "latency_ms": round((time.time() - t0) * 1000),
+                "reply": f"重排返回 {len(hits)} 条",
+                "hits": len(hits),
+            }
         if kind == "embedding":
             import httpx
             url = base_url.rstrip("/") + "/embeddings"

@@ -1,7 +1,7 @@
 """模型池请求/响应模型（V5.0 P1）。"""
 from pydantic import BaseModel, field_validator
 
-_SLOTS = ("text", "vision", "embedding")
+_SLOTS = ("text", "vision", "embedding", "rerank")
 
 
 class PoolItemIn(BaseModel):

@@ -7,7 +7,8 @@
 import type { PoolMode, PoolSlot } from "../../store/poolStore";
 import LLMPoolCard from "./LLMPoolCard";
 
-const SLOTS: PoolSlot[] = ["text", "vision", "embedding"];
+/** V5.13：追加 rerank（重排）槽位，与文本 / 图像 / 向量并列；个人池与平台池共用此列表 */
+const SLOTS: PoolSlot[] = ["text", "vision", "embedding", "rerank"];
 
 interface Props {
   title: string;

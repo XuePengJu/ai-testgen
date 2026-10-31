@@ -51,11 +51,44 @@ export const EMBED_PROVIDERS: Record<string, {
   },
 };
 
+/**
+ * Rerank 重排厂商预设（V5.13）：召回后按 query 相关性重排，压噪提精度。
+ * 单列维护 —— 端点不同（/rerank 而非 /embeddings），避免污染向量模型下拉。
+ * 与后端 app/core/providers.py:RERANK_PROVIDERS 保持一致。
+ */
+export const RERANK_PROVIDERS: Record<string, {
+  label: string;
+  base_url: string;
+  note: string;
+  models: { id: string; label: string }[];
+}> = {
+  siliconflow: {
+    label: "硅基流动 · SiliconCloud 重排",
+    base_url: "https://api.siliconflow.cn/v1",
+    note: "bge-reranker-v2-m3 有免费额度、中文效果好；同一 Key 可同时用于该平台的向量与重排",
+    models: [
+      { id: "BAAI/bge-reranker-v2-m3", label: "bge-reranker-v2-m3 · 多语言（推荐）" },
+      { id: "BAAI/bge-reranker-base", label: "bge-reranker-base · 轻量快速" },
+      { id: "Qwen/Qwen3-Reranker-8B", label: "Qwen3-Reranker-8B · 中文强" },
+    ],
+  },
+  custom: {
+    label: "自定义（OpenAI 风格 /rerank）",
+    base_url: "",
+    note: "填写任意提供 POST {base_url}/rerank 的端点；百炼 gte-rerank 等原生协议厂商请在此手填端点",
+    models: [],
+  },
+};
+
 /** 槽位标题与说明 */
 export const SLOT_TITLE: Record<string, { title: string; sub: string }> = {
   text: { title: "默认文本模型", sub: "需求拆解 / 用例生成 / 对话" },
   vision: { title: "图像识别模型", sub: "原型图 / 截图转用例（可选）" },
   embedding: { title: "Embedding 向量模型", sub: "知识库入库与检索（向量化）" },
+  rerank: {
+    title: "重排模型 Rerank",
+    sub: "召回结果按相关性重排（可选）· 当前仅支持配置，尚未接入检索链路",
+  },
 };
 
 /**

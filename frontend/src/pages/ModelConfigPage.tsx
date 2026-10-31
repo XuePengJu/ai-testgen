@@ -82,7 +82,7 @@ export default function ModelConfigPage() {
           {tab === "personal" ? (
             <LLMSlotGroup
               title="我的模型池"
-              intro="个人模型池优先于平台默认；文本槽为必配项（免费厂商可不填 Key，由平台提供）；Embedding 向量模型用于知识库入库与检索，不配置时走 mock（流程可用、检索质量差）。池内多条候选按优先级调度，撞限流自动切换。"
+              intro="个人模型池优先于平台默认；文本槽为必配项（免费厂商可不填 Key，由平台提供）；Embedding 向量模型用于知识库入库与检索，不配置时走 mock（流程可用、检索质量差）。重排模型（Rerank）用于召回结果按相关性重排，当前仅开放配置、暂未接入检索链路。池内多条候选按优先级调度，撞限流自动切换。"
               mode="personal"
             />
           ) : (

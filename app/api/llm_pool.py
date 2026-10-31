@@ -29,14 +29,14 @@ from app.services import llm_pool, llm_service
 
 router = APIRouter()
 
-_SLOTS = ("text", "vision", "embedding")
+_SLOTS = ("text", "vision", "embedding", "rerank")
 
 
 # ============ 内部实现（个人池 / 平台池共用，仅 owner_id 不同） ============
 
 def _check_slot(slot: str) -> None:
     if slot not in _SLOTS:
-        raise HTTPException(400, detail="slot 只能是 text / vision / embedding")
+        raise HTTPException(400, detail="slot 只能是 text / vision / embedding / rerank")
 
 
 def _rows(db: Session, owner_id: int, slot: str) -> list[LLMModelPool]:
@@ -224,7 +224,8 @@ def _impl_test(db: Session, owner_id: int, slot: str, item_id: int) -> dict:
                 "model": row.model, "error": "该条未配置可用 Key"}
     res = llm_service.test_connectivity(
         cfg["base_url"], cfg["api_key"], cfg["model"],
-        kind="embedding" if slot == "embedding" else "chat",
+        # rerank 走 /rerank、embedding 走 /embeddings，其余按对话探测
+        kind=slot if slot in ("embedding", "rerank") else "chat",
     )
     out = {**res, "model": row.model, "provider_label": provider_label(row.provider)}
     if not out.get("ok"):

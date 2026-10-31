@@ -181,10 +181,36 @@ EMBEDDING_PROVIDERS: dict[str, dict] = {
 }
 
 
+# Rerank 重排模型厂商预设（V5.13）：召回后按 query 相关性重排，用于压噪、提精度。
+# 与 embedding 预设分开维护 —— 端点不同（多数是 /rerank 而非 /embeddings）。
+# ⚠️ 目前各家 rerank 协议不统一，这里只收「OpenAI 风格 /rerank」的厂商；
+#    其余厂商（如百炼 gte-rerank 走 DashScope 原生 API）请选 custom 手填端点。
+RERANK_PROVIDERS: dict[str, dict] = {
+    "siliconflow": {
+        "label": "硅基流动 · SiliconCloud 重排",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "note": "bge-reranker-v2-m3 有免费额度、中文效果好；POST {base_url}/rerank",
+        "models": [
+            {"id": "BAAI/bge-reranker-v2-m3", "label": "bge-reranker-v2-m3 · 多语言（推荐）"},
+            {"id": "BAAI/bge-reranker-base", "label": "bge-reranker-base · 轻量快速"},
+            {"id": "Qwen/Qwen3-Reranker-8B", "label": "Qwen3-Reranker-8B · 中文强"},
+        ],
+    },
+    "custom": {
+        "label": "自定义（OpenAI 风格 /rerank）",
+        "base_url": "",
+        "note": "填写任意提供 POST {base_url}/rerank 的端点（body: model / query / documents）",
+        "models": [],
+    },
+}
+
+
 def provider_label(provider: str) -> str:
-    p = PROVIDERS.get(provider) or EMBEDDING_PROVIDERS.get(provider)
+    p = (PROVIDERS.get(provider) or EMBEDDING_PROVIDERS.get(provider)
+         or RERANK_PROVIDERS.get(provider))
     return p["label"] if p else (provider or "自定义")
 
 
 def is_provider(provider: str) -> bool:
-    return provider in PROVIDERS or provider in EMBEDDING_PROVIDERS
+    return (provider in PROVIDERS or provider in EMBEDDING_PROVIDERS
+            or provider in RERANK_PROVIDERS)

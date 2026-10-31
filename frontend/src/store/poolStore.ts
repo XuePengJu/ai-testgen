@@ -15,7 +15,8 @@ import { getAuthSnapshot } from "../contexts/authState";
 import type { LLMPoolHealth, LLMPoolItem, LLMPoolItemIn } from "../types";
 
 export type PoolMode = "personal" | "platform";
-export type PoolSlot = "text" | "vision" | "embedding";
+/** rerank（重排）为 V5.13 新增槽位：当前仅提供配置能力，尚未接入检索链路 */
+export type PoolSlot = "text" | "vision" | "embedding" | "rerank";
 
 export interface PoolTestResult {
   ok: boolean;

@@ -21,7 +21,7 @@ import { toast } from "../../api/client";
 import { usePoolStore, type PoolMode, type PoolSlot } from "../../store/poolStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import type { LLMPoolItem, LLMPoolItemIn } from "../../types";
-import { EMBED_PROVIDERS, SLOT_TITLE, circledIndex, FREE_PROVIDERS } from "./llmPresets";
+import { EMBED_PROVIDERS, RERANK_PROVIDERS, SLOT_TITLE, circledIndex, FREE_PROVIDERS } from "./llmPresets";
 
 /** 稳定的空数组引用：zustand selector 返回新数组会导致无限重渲染 */
 const EMPTY: LLMPoolItem[] = [];
@@ -42,6 +42,33 @@ interface PresetLike {
   models: { id: string; label: string }[];
 }
 type PresetMap = Record<string, PresetLike>;
+
+/**
+ * 各槽位的厂商预设来源（V5.13）：
+ *   text / vision → 后端 GET /api/llm/providers 的文本厂商
+ *   embedding     → 前端内置 EMBED_PROVIDERS（走 /embeddings）
+ *   rerank        → 前端内置 RERANK_PROVIDERS（走 /rerank）
+ * 三套预设互不混用，避免把对话模型塞进向量槽这类误配。
+ */
+const PRESET_BY_SLOT: Record<string, PresetMap> = {
+  embedding: EMBED_PROVIDERS,
+  rerank: RERANK_PROVIDERS,
+};
+
+/** 空池提示：rerank 尚未接入链路，不能复用「走平台兜底 / mock」那套说法 */
+const EMPTY_TIP: Record<string, string> = {
+  rerank:
+    "还没有候选模型。重排槽位当前仅提供配置能力，尚未接入检索链路；接入后按本行顺序依次尝试，首条限流自动换下一条。",
+};
+
+/**
+ * 默认选中的厂商 = 本槽位预设的第一项。
+ * rerank 的第一项是硅基流动、embedding / 文本 / 图像的预设首位都是百炼。
+ * 预设尚未加载时（文本槽的 providers 是异步拉的）回落 bailian，与旧行为一致。
+ */
+function defaultProviderOf(source: PresetMap): string {
+  return Object.keys(source)[0] || "bailian";
+}
 
 /** 后端 cooldown_until 是 naive UTC ISO 串 → 补 Z 后按本地时区展示 */
 function fmtTime(iso: string | null): string {
@@ -67,7 +94,10 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
   const add = usePoolStore((s) => s.add);
   const update = usePoolStore((s) => s.update);
 
-  const [provider, setProvider] = useState(initial?.provider || "bailian");
+  // 默认厂商取「本槽位预设的第一项」，不能硬编码 bailian：
+  // rerank 的预设里没有百炼，硬编码会让下拉多出一条「bailian（当前值）」，
+  // 且 source[bailian] 为空 → Base URL 不会自动带出（V5.13.1 修）
+  const [provider, setProvider] = useState(initial?.provider || defaultProviderOf(source));
   const [baseUrl, setBaseUrl] = useState(initial?.base_url || "");
   const [model, setModel] = useState(initial?.model || "");
   const [apiKey, setApiKey] = useState("");
@@ -134,7 +164,8 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
           {Object.entries(source).map(([id, p]) => (
             <option key={id} value={id}>{p.label}</option>
           ))}
-          {!source[provider] && <option value={provider}>{provider}（当前值）</option>}
+          {/* 仅编辑态才可能命中：该条历史记录的厂商已从预设里移除。新建态 provider 必来自 source */}
+          {initial && !source[provider] && <option value={provider}>{provider}（当前值）</option>}
         </select>
         <ChevronDown className="chevron" size={16} />
       </div>
@@ -155,7 +186,8 @@ function PoolItemForm({ mode, slot, initial, source, onCancel, onDone }: FormPro
         autoComplete="off"
         placeholder={
           slot === "embedding" ? "如 text-embedding-v3 / BAAI/bge-m3"
-            : slot === "vision" ? "如 qwen-vl-plus（需支持图像）" : "如 qwen-plus / ep-xxx"
+            : slot === "rerank" ? "如 BAAI/bge-reranker-v2-m3"
+              : slot === "vision" ? "如 qwen-vl-plus（需支持图像）" : "如 qwen-plus / ep-xxx"
         }
         list={`pool-model-suggest-${mode}-${slot}`}
         data-testid={`pool-model-${mode}-${slot}`}
@@ -224,7 +256,8 @@ interface BatchFormProps {
 function BatchPoolForm({ mode, slot, source, onCancel, onDone }: BatchFormProps) {
   const addBatch = usePoolStore((s) => s.addBatch);
 
-  const [provider, setProvider] = useState("bailian");
+  /** 同单条表单：取本槽位预设第一项，避免 bailian 漏进 rerank 下拉 */
+  const [provider, setProvider] = useState(defaultProviderOf(source));
   const [baseUrl, setBaseUrl] = useState("");
   const [modelInput, setModelInput] = useState("");
   const [models, setModels] = useState<string[]>([]);
@@ -355,10 +388,10 @@ function BatchPoolForm({ mode, slot, source, onCancel, onDone }: BatchFormProps)
           onChange={(e) => onProviderChange(e.target.value)}
           data-testid={`pool-provider-${mode}-${slot}`}
         >
+          {/* 批量新增永远是全新配置，provider 必来自本槽位预设，无需「当前值」兜底项 */}
           {Object.entries(source).map(([id, p]) => (
             <option key={id} value={id}>{p.label}</option>
           ))}
-          {!source[provider] && <option value={provider}>{provider}（当前值）</option>}
         </select>
         <ChevronDown className="chevron" size={16} />
       </div>
@@ -544,7 +577,7 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
     void load(mode, slot);
   }, [loadProviders, load, mode, slot]);
 
-  const source: PresetMap = slot === "embedding" ? EMBED_PROVIDERS : providers;
+  const source: PresetMap = PRESET_BY_SLOT[slot] ?? providers;
   const meta = SLOT_TITLE[slot] ?? { title: slot, sub: "" };
   const available = items.filter((i) => i.enabled && !i.cooling).length;
   const coolingCount = items.filter((i) => i.enabled && i.cooling).length;
@@ -624,8 +657,8 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
 
       {items.length === 0 && (
         <div className="pool-empty" data-testid={`pool-empty-${mode}-${slot}`}>
-          还没有候选模型。池为空时该槽位走平台兜底（服务器环境变量），未配置则走 mock
-          —— 添加第 1 条后即按池调度，某条撞限流或额度用尽时自动换下一条，任务不中断。
+          {EMPTY_TIP[slot]
+            ?? "还没有候选模型。池为空时该槽位走平台兜底（服务器环境变量），未配置则走 mock —— 添加第 1 条后即按池调度，某条撞限流或额度用尽时自动换下一条，任务不中断。"}
         </div>
       )}
 
