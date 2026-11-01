@@ -14,7 +14,9 @@ import hashlib
 import logging
 import re
 
-from app.core.config import VECTOR_DIR, VECTOR_COLLECTION, AITF_ALLOW_DEMO
+from app.core.config import (
+    VECTOR_DIR, VECTOR_COLLECTION, AITF_ALLOW_DEMO, AITF_EMBED_MODEL_GUARD,
+)
 
 logger = logging.getLogger("knowledge.vectorstore")
 
@@ -41,6 +43,68 @@ def configure_embedding(cfg: dict | None) -> None:
 def using_mock_embedding() -> bool:
     """是否已注入真实 Embedding（False 表示当前没有可用的真实 embedding）。"""
     return _EMBED_CFG is None
+
+
+# ============ V7.8 embedding 模型空间防呆 ============
+# 背景：换 embedding 模型后若没重算历史向量，且两边维度恰好相同（阿里
+# text-embedding-v3 与 BAAI/bge-m3 都是 1024 维），维度校验完全拦不住 ——
+# 检索照常返回、也不报错，但相似度是噪声（实测同一段文本余弦 -0.03，
+# 前端引用百分比掉到 1~3%）。这是典型的静默错误，比直接报错危险得多。
+EMBED_MODEL_FIELD = "embedding_model"   # 存在 chunk metadata 里的建库模型名
+_SPACE_CHECK_TTL = 60.0                 # 空间校验结果缓存秒数（避免每次检索都抽样）
+_space_check: dict = {"at": 0.0, "model": "", "ok": True, "warned_missing": False}
+
+
+def current_embed_model() -> str:
+    """当前注入的 embedding 模型名；无真实配置时返回空串（无从比对）。"""
+    if not _EMBED_CFG:
+        return ""
+    return str(_EMBED_CFG.get("model") or "")
+
+
+def _check_model_space(coll) -> bool:
+    """抽样比对「库中向量的建库模型」与「当前 embedding 模型」是否一致。
+
+    返回 True = 可安全走稠密检索（一致 / 历史无标记 / 校验关闭 / 无真实配置）。
+    - 无 ``embedding_model`` 标记（旧数据）：不阻断，仅首次提示建议重建索引；
+    - 标记存在且与当前模型不同：``logger.error`` 点名两个模型，返回 False ——
+      调用方据此关闭稠密通道（退化为 BM25），绝不拿错空间的结果冒充命中。
+    - 结果按当前模型缓存 ``_SPACE_CHECK_TTL`` 秒，重建索引后最多 60s 自愈。
+    """
+    if not AITF_EMBED_MODEL_GUARD:
+        return True
+    cur = current_embed_model()
+    if not cur:
+        return True  # 没有真实 embedding，无从比对（后续 embed_texts 自身会报错/降级）
+    import time as _time
+    now = _time.monotonic()
+    if _space_check["model"] == cur and (now - _space_check["at"]) < _SPACE_CHECK_TTL:
+        return bool(_space_check["ok"])
+    try:
+        sample = coll.get(limit=1, include=["metadatas"])
+    except Exception as e:  # noqa: BLE001  抽样失败不阻断检索
+        logger.warning("embedding 模型空间抽样失败（本次跳过校验）：%s", e)
+        return True
+    metas = sample.get("metadatas") or []
+    stored = str((metas[0] or {}).get(EMBED_MODEL_FIELD) or "") if len(metas) else ""
+    ok = True
+    if not stored:
+        if not _space_check["warned_missing"]:
+            logger.warning(
+                "向量库缺少 %s 标记，无法校验模型空间；若曾更换 embedding 模型，"
+                "请重建向量索引（当前模型=%s）", EMBED_MODEL_FIELD, cur,
+            )
+            _space_check["warned_missing"] = True
+    elif stored != cur:
+        ok = False
+        logger.error(
+            "⚠️ embedding 模型空间不一致：向量库由 %r 建立，当前模型为 %r。"
+            "两者维度可能相同但向量空间不同，稠密检索只会返回噪声 —— "
+            "已关闭稠密通道（本次检索退化纯 BM25）。请重算向量索引，"
+            "或将 embedding 模型改回 %r。", stored, cur, stored,
+        )
+    _space_check.update({"at": now, "model": cur, "ok": ok})
+    return ok
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -122,17 +186,35 @@ def index_chunks(
             "visibility": visibility,
             "chunk_index": c.get("chunk_index", 0),
             "file_name": file_name[:200],
+            # V7.8：记录建库模型，供检索时校验空间一致性
+            EMBED_MODEL_FIELD: current_embed_model(),
         } for c in chunks],
     )
 
 
 def update_chunk_vectors(chunk_id: str, content: str, metadata: dict | None = None) -> None:
-    """单块向量更新（分块手动编辑后调用，同步 Chroma）。"""
+    """单块向量更新（分块手动编辑后调用，同步 Chroma）。
+
+    V7.8：强制写入 ``embedding_model``。调用方不传 metadata 时先取旧的原样
+    合并（Chroma 的 update 传 metadata 会整体覆盖，直接传会丢字段）。
+    """
     coll = _collection()
     vectors = embed_texts([content])
-    if metadata:
+    meta: dict = dict(metadata) if metadata else {}
+    if not metadata:
+        try:
+            got = coll.get(ids=[chunk_id], include=["metadatas"])
+            old = (got.get("metadatas") or [])
+            if old and old[0]:
+                meta = dict(old[0])
+        except Exception as e:  # noqa: BLE001  取旧值失败就用空 metadata（不阻断）
+            logger.warning("取旧 chunk metadata 失败（沿用空 metadata）：%s", e)
+    model = current_embed_model()
+    if model:
+        meta[EMBED_MODEL_FIELD] = model
+    if meta:
         coll.update(ids=[chunk_id], documents=[content], embeddings=vectors,
-                    metadatas=[metadata])
+                    metadatas=[meta])
     else:
         coll.update(ids=[chunk_id], documents=[content], embeddings=vectors)
 
@@ -191,6 +273,8 @@ def search(
     if not visible_kb_ids:
         return []
     coll = _collection()
+    if not _check_model_space(coll):
+        return []  # V7.8 向量空间不一致：关闭稠密通道，由 BM25 稀疏通道兜底
     where: dict = {"kb_id": {"$in": visible_kb_ids}}
     if kb_id:
         where = {"$and": [where, {"kb_id": kb_id}]}
@@ -265,6 +349,8 @@ def index_memory_vectors(items: list) -> int:
                 "kb_id": "",
                 "personal": True,
                 "file_name": f"记忆 · {it.subject}"[:200],
+                # V7.8：记录建库模型，供检索时校验空间一致性
+                EMBED_MODEL_FIELD: current_embed_model(),
             } for it in items],
         )
         return len(items)
@@ -280,9 +366,12 @@ def search_memory_vectors(query: str, user_id: int, top_k: int = 5) -> list[dict
     """
     if using_mock_embedding():
         return []
+    coll = _collection()
+    if not _check_model_space(coll):
+        return []  # V7.8 向量空间不一致：关闭条目稠密通道
     try:
         qvec = embed_texts([query])[0]
-        res = _collection().query(
+        res = coll.query(
             query_embeddings=[qvec],
             n_results=max(1, min(top_k, 50)),
             where={"$and": [{"source": "mem_item"}, {"user_id": user_id}]},
