@@ -44,11 +44,13 @@ def get_effective(db: Session = Depends(get_db),
     p_text = llm_pool.pool_first(db, user, "text")
     p_vision = llm_pool.pool_first(db, user, "vision")
     p_emb = llm_pool.pool_first(db, user, "embedding")
+    p_rerank = llm_pool.pool_first(db, user, "rerank")
     return {
         "source": "pool" if p_text else eff["source"],
         "text": llm_service.public_view(p_text or eff["text"]),
         "vision": llm_service.public_view(p_vision or eff["vision"]),
         "embedding": llm_service.public_view(p_emb or emb["cfg"]),
+        "rerank": llm_service.public_view(p_rerank),
         "embedding_source": "pool" if p_emb else emb["source"],
         # V5.1 P1：三槽的池现状（各含 owner/total/enabled/available/cooling/hit）。
         # 供「模型调度」摘要卡使用 —— 走的是 get_current_user，**访客也能看到条数**，
@@ -56,7 +58,7 @@ def get_effective(db: Session = Depends(get_db),
         # 上方 5 个旧字段全部保留不动，前端可平滑过渡。
         "pools": {
             s: llm_pool.pool_stats(db, user, s)
-            for s in ("text", "vision", "embedding")
+            for s in ("text", "vision", "embedding", "rerank")
         },
     }
 

@@ -1388,6 +1388,14 @@ button.cl-select:hover { background: #f5f7fa; }
 }
 .pool-row.cooling { border-color: #f3e0cb; background: #fffdf9; }
 .pool-hint { font-size: 12px; color: #a7abb3; margin-top: 8px; }
+/* 池内多条折叠/展开（V5.14）：默认只显示第 1 条，点此展开其余 */
+.pool-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 8px; padding: 3px 10px;
+  border: 1px solid #e5e6eb; border-radius: 6px; background: #fff;
+  font-size: 12px; color: #165dff; cursor: pointer;
+}
+.pool-toggle:hover { border-color: #165dff; background: #f5f9ff; }
 
 /* ---- admin 统计 ----
    V7.5：列数由 auto-fit 自适应卡片数，不再写死 4 列 ——

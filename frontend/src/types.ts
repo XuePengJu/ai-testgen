@@ -334,8 +334,10 @@ export interface LLMEffective {
   vision: { provider: string; provider_label: string; base_url: string; model: string } | null;
   embedding?: { provider: string; provider_label: string; base_url: string; model: string } | null;
   embedding_source?: string;
+  /** V5.13：重排模型（rerank）当前生效项；未配置为 null */
+  rerank?: { provider: string; provider_label: string; base_url: string; model: string } | null;
   /** V5.1 P1：三槽池现状（effective 走 get_current_user，访客也能拿到条数） */
-  pools?: Partial<Record<"text" | "vision" | "embedding", LLMPoolStats>>;
+  pools?: Partial<Record<"text" | "vision" | "embedding" | "rerank", LLMPoolStats>>;
 }
 
 /** /api/llm/test-default/{slot} 响应 */

@@ -16,7 +16,7 @@
  *     便于浏览器截图验证
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { toast } from "../../api/client";
 import { usePoolStore, type PoolMode, type PoolSlot } from "../../store/poolStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -571,6 +571,8 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
   const [editing, setEditing] = useState<"new" | number | null>(null);
   const [testing, setTesting] = useState<Record<number, boolean>>({});
   const [testMsg, setTestMsg] = useState<Record<number, { ok: boolean; text: string }>>({});
+  /** V5.14：池内多条时默认折叠，只显示第 1 条（优先级最高）；点「展开」显示全部 */
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     void loadProviders();
@@ -665,6 +667,8 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
       {items.length > 0 && (
         <ul className="pool-list">
           {items.map((it, idx) => {
+            // V5.14：折叠态只渲染第 1 条（其余收起，点击展开）
+            if (!expanded && idx > 0) return null;
             const state = !it.enabled ? "off" : it.cooling ? "cool" : idx === hitIdx ? "hit" : "standby";
             const dot = !it.enabled ? "off" : it.cooling ? "cool" : "ok";
             const dotTitle = !it.enabled ? "已停用"
@@ -763,6 +767,18 @@ export default function LLMPoolCard({ slot, mode, onChanged }: Props) {
             );
           })}
         </ul>
+      )}
+
+      {items.length > 1 && (
+        <button
+          className="pool-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          data-testid={`pool-toggle-${mode}-${slot}`}
+        >
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {expanded ? "收起" : `展开其余 ${items.length - 1} 条`}
+        </button>
       )}
 
       {items.length > 1 && (

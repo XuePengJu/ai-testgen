@@ -197,6 +197,37 @@ AITF_DOC_MIN_SCORE_RATIO = float(os.getenv("AITF_DOC_MIN_SCORE_RATIO", "0.35")) 
 AITF_MEMORY_MIN_SCORE_RATIO   = float(os.getenv("AITF_MEMORY_MIN_SCORE_RATIO", "0.1"))  # 相对阈值：cutoff = max(绝对地板, best_base * ratio)
 
 
+# ============ V7.6 重排精排（rerank）============
+# 两阶段检索第二阶段：文档通道粗排召回后，用 rerank 模型按 query 相关性精排。
+# 只作用于文档通道（业务库 + 个人库文档）；条目记忆恒排最前不参与重排。
+# 未配置 rerank 池 / 池空 / 调用失败时静默降级原顺序，绝不影响主链路。
+AITF_RERANK_ENABLED     = os.getenv("AITF_RERANK_ENABLED", "1") == "1"      # 重排总开关；0=关闭（走原粗排直接注入）
+AITF_RERANK_CANDIDATE_K = int(os.getenv("AITF_RERANK_CANDIDATE_K", "20"))   # 粗排召回上限（rerank 的候选量，越大精排越有腾挪空间）
+AITF_RERANK_TOP_K       = int(os.getenv("AITF_RERANK_TOP_K", "6"))          # 精排后注入文档条数上限
+AITF_RERANK_MIN_SCORE   = float(os.getenv("AITF_RERANK_MIN_SCORE", "0"))    # 相关性硬阈值；低于此值的候选丢弃（0=只重排不过滤）。⚠️ 默认 0：各 rerank 服务商分数分布不可预测（SiliconFlow bge-reranker 返回原始 logit，量级 0.0002~0.02，远低于 0~1 的 sigmoid），硬阈值极易把候选全砍光 → 检索变空，故默认关闭过滤、只排序
+
+# ============ V7.7 rerank query 信息量门控（太短/太泛跳过精排）============
+# 原因（实测）：rerank 对短泛问句的 logit 打分不可靠——「ERP 有啥功能」把
+# 「PDO/SSL 环境依赖」排第一，而原 RRF 靠 BM25 关键词能把「系统简介」顶上来。
+# 短泛问信息量不足以让语义精排胜过关键词匹配，重排反而劣化排序。
+# 两级判据（任一命中即跳过，走原 RRF 排序，不放大召回、不重排）：
+#   1. 有效字符 < MIN_QUERY_CHARS（超短问句）
+#   2. 命中泛问模式 且 有效字符 < GENERIC_MAX_CHARS（开放泛问）
+# 有效字符 = 去空白/标点后只数汉字/字母/数字。阈值 0 = 该判据关闭（可整体回滚）。
+AITF_RERANK_MIN_QUERY_CHARS   = int(os.getenv("AITF_RERANK_MIN_QUERY_CHARS", "8"))     # 有效字符 < 此值 → 跳过 rerank
+AITF_RERANK_SKIP_GENERIC      = os.getenv("AITF_RERANK_SKIP_GENERIC", "1") == "1"      # 泛问模式跳过开关；0=关闭该判据
+AITF_RERANK_GENERIC_MAX_CHARS = int(os.getenv("AITF_RERANK_GENERIC_MAX_CHARS", "12"))  # 泛问模式 且 有效字符 < 此值 → 跳过 rerank
+
+# ============ V7.8 embedding 模型空间防呆 ============
+# 换 embedding 模型后若没重算历史向量，**维度可能完全相同**（阿里
+# text-embedding-v3 与 BAAI/bge-m3 都是 1024 维），维度校验形同虚设：
+# 检索照常返回结果，但相似度全是噪声（实测余弦 -0.03，引用百分比只剩 1~3%）。
+# 做法：入库时把模型名写进 metadata.embedding_model；检索前抽样比对，
+# 不一致就**明确报错并关闭稠密通道**（退化为纯 BM25 稀疏检索），
+# 绝不静默拿错空间的结果冒充命中。
+AITF_EMBED_MODEL_GUARD = os.getenv("AITF_EMBED_MODEL_GUARD", "1") == "1"  # 模型空间防呆总开关；0=关闭校验（运维回滚口径）
+
+
 def is_mock() -> bool:
     """无百炼 Key 时走 mock 兜底，保证开箱即跑。"""
     return not bool(DASHSCOPE_API_KEY)

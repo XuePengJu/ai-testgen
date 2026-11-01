@@ -228,6 +228,99 @@ def _doc_search(db: Session, query: str, kb_ids: list[str], top_k: int,
     return hybrid_search_docs(db, query, kb_ids, top_k=top_k)
 
 
+# V7.7 泛问模式：开放的功能清单问 / 概况介绍问——这类问句信息量不足以让
+# rerank 的语义打分胜过 BM25 关键词匹配，交给 rerank 反而把无关段落排前。
+# 只认「问清单/问概况」两类，不碰带具体实义约束的问句（如「审批流程是什么」）。
+_GENERIC_QUERY_PAT = re.compile(
+    r"(有啥|有哪些|有什么|哪些|啥).{0,3}功能"              # 「有啥功能 / 有哪些功能」
+    r"|(功能|作用|用途|能力).{0,3}(有哪些|有啥|是什么)"      # 「功能有哪些 / 作用是什么」
+    r"|(介绍|说明|讲讲)(一下)?",                              # 「介绍一下 / 说明一下」
+    re.IGNORECASE,
+)
+
+
+def _query_info_chars(query: str) -> int:
+    """query 有效字符数：只数汉字/字母/数字，剔除空白与标点。
+
+    「ERP 有啥功能」→ 7（空格不算）；「测试」→ 2。用于判 query 是否太短。
+    """
+    return sum(1 for ch in (query or "") if ch.isalnum())
+
+
+def _should_skip_rerank(query: str) -> bool:
+    """V7.7 门控：query 太短或属于开放泛问时跳过 rerank（走原 RRF 排序）。
+
+    两级判据（任一命中即跳过）：
+    1. 有效字符 < AITF_RERANK_MIN_QUERY_CHARS（默认 8）—— 超短问句；
+    2. 命中泛问模式 且 有效字符 < AITF_RERANK_GENERIC_MAX_CHARS（默认 12）
+       —— 「XX 有哪些功能 / 介绍一下 XX」这类开放泛问。
+
+    具体问句（「ERP 采购订单的审批流程是什么」15 字）两条都不命中，照常精排。
+    ⚠️ 阈值设 0 / 关闭泛问开关即退化为不跳过（纯两阶段检索，运维回滚口径）。
+    """
+    q = (query or "").strip()
+    if not q:
+        return True
+    chars = _query_info_chars(q)
+    min_chars = config.AITF_RERANK_MIN_QUERY_CHARS
+    if min_chars > 0 and chars < min_chars:
+        return True
+    if (config.AITF_RERANK_SKIP_GENERIC
+            and chars < config.AITF_RERANK_GENERIC_MAX_CHARS
+            and _GENERIC_QUERY_PAT.search(q)):
+        return True
+    return False
+
+
+def _apply_rerank(query: str, hits: list[dict], pool: list[dict],
+                  top_k: int) -> list[dict]:
+    """V7.6 文档通道重排精排：按 query 相关性用 rerank 模型重排 + 低分过滤。
+
+    - pool：已 resolve 的 rerank 候选池（空则直接原样返回，不放大不重排）
+    - 条目记忆（metadata.source == "mem_item"）恒排最前，不参与重排；
+      其余（业务库 + 个人库文档）交 rerank 精排。
+    - rerank 池空 / 候选不足 2 条 / 调用失败 → 原样返回 hits。
+    - rerank 服务端裁剪返回量时，未覆盖的候选保留原顺序兜底，绝不丢弃。
+    - 低分阈值 AITF_RERANK_MIN_SCORE（>0 时）：低于该分值的文档候选丢弃。
+    """
+    if not pool or not hits:
+        return hits
+    docs = [h for h in hits if (h.get("metadata") or {}).get("source") != "mem_item"]
+    items = [h for h in hits if (h.get("metadata") or {}).get("source") == "mem_item"]
+    if len(docs) < 2:
+        return hits
+    from app.services import llm_service
+    try:
+        scored = llm_service.rerank_documents(
+            pool[0]["base_url"], pool[0]["api_key"], pool[0]["model"],
+            query, [h.get("document") or "" for h in docs], top_n=len(docs),
+        )
+    except Exception as e:  # noqa: BLE001  重排失败降级原顺序
+        logger.warning("rerank 精排失败，降级原顺序：%s", e)
+        return hits
+    by_idx = {s["index"]: s["score"] for s in scored}
+    ranked: list[tuple[float, dict]] = []
+    tail: list[dict] = []  # 服务端未覆盖：保留原顺序兜底
+    for i, h in enumerate(docs):
+        sc = by_idx.get(i)
+        if sc is None:
+            tail.append(h)
+            continue
+        meta = h.setdefault("metadata", {})
+        meta["rerank_score"] = round(sc, 4)
+        meta["reranked"] = True
+        ranked.append((sc, h))
+    min_score = config.AITF_RERANK_MIN_SCORE
+    ranked.sort(key=lambda t: -t[0])
+    if min_score > 0:
+        keep = [h for sc, h in ranked if sc >= min_score]
+        if not keep:  # 保底：阈值过滤后为空则回退不过滤，绝不让非空检索变空
+            keep = [h for sc, h in ranked]
+    else:
+        keep = [h for sc, h in ranked]
+    return items + keep[:top_k] + tail
+
+
 def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[str, list[dict]]:
     """P4 RAG：按（个人记忆库 ∪ 用户勾选业务库）∩ 可见 联合检索，拼参考上下文。
 
@@ -267,6 +360,19 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
     picked_biz = [k for k in (body.kb_ids or ([] if not body.kb_id else [body.kb_id]))
                   if k in vids]
     top_k = 6 if not body.file_id else 4  # 有附件时少检索几块，给附件正文留空间
+    # V7.6 重排：先探 rerank 池是否可用，可用才放大文档粗排召回给精排腾空间；
+    # 池空则完全不放大（行为与旧版逐字节一致，不破坏无 rerank 部署的检索）。
+    _rerank_pool: list[dict] = []
+    if config.AITF_RERANK_ENABLED:
+        from app.services import llm_pool as _llm_pool
+        _rerank_pool = _llm_pool.resolve_pool(db, user, "rerank")
+    # V7.7 query 信息量门控：太短/太泛的 query 跳过 rerank——清空池后既不放大
+    # 粗排召回、也不重排，走原 RRF 排序，避免语义打分劣化关键词匹配的排序。
+    if _rerank_pool and _should_skip_rerank(body.message):
+        logger.info("rerank 门控：query 太短/太泛，跳过精排走原 RRF 排序")
+        _rerank_pool = []
+    _rerank_on = bool(_rerank_pool)
+    _doc_topk = config.AITF_RERANK_CANDIDATE_K if _rerank_on else top_k
     import time as _time  # V7.3 埋点计时（本函数出参与 citations 均不变）
     _rag_t0 = _time.perf_counter()
     _is_guest = user.role == "guest"
@@ -275,13 +381,14 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
     # 前端 0 回复）。与下方通道 C「失败降级为空，绝不拖垮文档检索链路」同一哲学。
     # 实测案例：DashScope 免费额度耗尽 → embed_texts RuntimeError → 对话流全挂。
     try:
-        biz_hits = (_doc_search(db, body.message, picked_biz, top_k, is_guest=_is_guest)
+        biz_hits = (_doc_search(db, body.message, picked_biz, _doc_topk, is_guest=_is_guest)
                     if picked_biz else [])
     except Exception as e:  # noqa: BLE001
         logger.warning("业务库检索失败（降级跳过，本轮无业务库上下文）：%s", e)
         biz_hits = []
     try:
-        mem_hits = (_doc_search(db, body.message, [personal_kb_id], config.AITF_MEMORY_TOPK,
+        mem_hits = (_doc_search(db, body.message, [personal_kb_id],
+                                _doc_topk if _rerank_on else config.AITF_MEMORY_TOPK,
                                 is_guest=_is_guest)
                     if personal_kb_id else [])
     except Exception as e:  # noqa: BLE001
@@ -317,6 +424,9 @@ def _build_rag_context(db: Session, user: User | None, body: ChatIn) -> tuple[st
         hits.append(h)
     if not hits:
         return "", []
+    # V7.6 重排精排：文档通道按 query 相关性重排 + 低分过滤；条目记忆保优先不参与。
+    # 未配置 / 失败一律原样返回，绝不影响主链路。
+    hits = _apply_rerank(body.message, hits, _rerank_pool, config.AITF_RERANK_TOP_K)
 
     # 批量查 title + source_key（引用跳转定位 + 记忆文档识别，一次查询避免 N+1）。
     # mem:conv: / mem:daily: 前缀 = 会话记忆/日报提炼稿（store.py / chat_memory.py）。

@@ -20,15 +20,16 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { circledIndex } from "./llmPresets";
 import type { LLMPoolStats } from "../../types";
 
-const SLOTS = ["text", "vision", "embedding"] as const;
+const SLOTS = ["text", "vision", "embedding", "rerank"] as const;
 type Slot = (typeof SLOTS)[number];
 
-const SLOT_LABEL: Record<Slot, string> = { text: "文本", vision: "图像", embedding: "向量" };
+const SLOT_LABEL: Record<Slot, string> = { text: "文本", vision: "图像", embedding: "向量", rerank: "重排" };
 
 const NONE_MODEL: Record<Slot, string> = {
   text: "未配置",
   vision: "未配置（可选）",
   embedding: "未配置（知识库不可用）",
+  rerank: "未配置（不重排）",
 };
 
 type Kind = "mine" | "platform" | "single";

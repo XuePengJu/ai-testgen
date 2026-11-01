@@ -684,3 +684,49 @@ def test_connectivity(base_url: str, api_key: str, model: str, kind: str = "chat
         }
     except LLMError as e:
         return {"ok": False, "latency_ms": round((time.time() - t0) * 1000), "error": str(e)[:300]}
+
+
+def rerank_documents(base_url: str, api_key: str, model: str,
+                     query: str, documents: list[str], top_n: int = 6) -> list[dict]:
+    """调用 OpenAI 风格 /rerank 端点做相关性精排（V7.6 两阶段检索第二阶段）。
+
+    入参：
+    - base_url / api_key / model：rerank 池候选的配置
+    - query：用户提问
+    - documents：待重排的文档正文列表（顺序与调用方候选一致）
+    - top_n：期望返回条数（传 len(documents) 时返回全量）
+
+    返回：按 relevance_score 降序的 [{"index", "score", "document"}]。
+    ``index`` 是 documents 中的原始下标，供调用方回映射；服务端裁剪返回量时
+    未出现的下标不会出现在结果里（调用方据此降级保留原顺序）。失败抛 LLMError。
+    """
+    import httpx
+    url = base_url.rstrip("/") + "/rerank"
+    resp = httpx.post(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "model": model,
+            "query": query or "",
+            "documents": [d or "" for d in documents],
+            "top_n": top_n,
+        },
+        timeout=20.0,
+    )
+    if resp.status_code != 200:
+        raise LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
+    hits = data.get("results") or data.get("data") or []
+    out: list[dict] = []
+    n = len(documents)
+    for h in hits:
+        idx = h.get("index")
+        score = h.get("relevance_score")
+        if idx is None or score is None:
+            continue
+        idx = int(idx)
+        if not (0 <= idx < n):
+            continue
+        out.append({"index": idx, "score": float(score), "document": documents[idx] or ""})
+    out.sort(key=lambda x: (-x["score"], x["index"]))
+    return out
