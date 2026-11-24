@@ -33,7 +33,7 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
-from app.api import auth, categories, chat, conversations, demo, demo_reset, files, guest, knowledge, llm_config, llm_pool, memory, prompts, stats, tasks, users
+from app.api import auth, categories, chat, conversations, demo, demo_reset, files, guest, internal, knowledge, llm_config, llm_pool, memory, prompts, stats, tasks, users
 from app.core import demo_config
 from app.core.config import STATIC_DIR, jwt_secret_is_placeholder, ENV, AITF_MEMORY_VEC_BACKFILL_ON_BOOT
 from app.core.db import init_db, engine
@@ -110,6 +110,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("演示站重置调度器初始化失败（不影响启动）：%s", e)
 
+    # V9.6 演示站：模型配置自动同步（从正式站平台池拉取）
+    try:
+        from app.jobs.model_sync import init_model_sync_scheduler
+        init_model_sync_scheduler()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("演示站模型同步调度器初始化失败（不影响启动）：%s", e)
+
     yield
 
     # 优雅关闭：等待队列中任务执行完毕（systemd TimeoutStopSec 兜底）
@@ -128,6 +135,13 @@ async def lifespan(app: FastAPI):
         shutdown_demo_reset_scheduler()
     except Exception as e:  # noqa: BLE001
         logger.warning("演示站重置调度器关闭失败：%s", e)
+
+    # V9.6 演示站：关闭模型自动同步调度器（幂等）
+    try:
+        from app.jobs.model_sync import shutdown_model_sync_scheduler
+        shutdown_model_sync_scheduler()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("演示站模型同步调度器关闭失败：%s", e)
 
     # 关闭前把剩余统计聚合落库，防丢尾部数据
     access_log.flush_stats_now()
@@ -161,6 +175,7 @@ app.include_router(guest.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
 app.include_router(llm_config.router, prefix="/api")
+app.include_router(internal.router, prefix="/api")
 app.include_router(llm_pool.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
@@ -190,7 +205,8 @@ def index():
         banner = (
             '<script>window.__AITF_DEMO__={is_demo:true,'
             f'guide_url:{json.dumps(demo_config.AITF_DEMO_GUIDE_URL)},'
-            f'reset_cron:{json.dumps(f"{demo_config.AITF_DEMO_RESET_HOUR:02d}:{demo_config.AITF_DEMO_RESET_MINUTE:02d}")}'
+            f'reset_cron:{json.dumps(f"{demo_config.AITF_DEMO_RESET_HOUR:02d}:{demo_config.AITF_DEMO_RESET_MINUTE:02d}")},'
+            f'reset_enabled:{json.dumps(bool(demo_config.AITF_DEMO_RESET_ENABLED))}'
             '};'
             f'window.__AITF_API_BASE__={json.dumps(demo_config.AITF_DEMO_BASE_PATH or "")};'
             '</script>'

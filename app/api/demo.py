@@ -96,11 +96,17 @@ def demo_token(db: Session = Depends(get_db)):
 
 @router.get("/meta")
 def demo_meta():
-    """演示站元信息（Banner 文案 / 引导链接 / 重置时间）。"""
+    """演示站元信息（Banner 文案 / 引导链接 / 重置时间与开关）。"""
     _require_demo_enabled()
+    reset_enabled = demo_config.AITF_DEMO_RESET_ENABLED
     return {
         "is_demo": True,
         "guide_url": demo_config.AITF_DEMO_GUIDE_URL,
         "reset_cron": f"{demo_config.AITF_DEMO_RESET_HOUR:02d}:{demo_config.AITF_DEMO_RESET_MINUTE:02d}",
-        "notice": "这是演示站：免登录、数据每日自动清空，请勿存放真实数据。",
+        "reset_enabled": reset_enabled,
+        "notice": (
+            "这是演示站：免登录、数据每日自动清空，请勿存放真实数据。"
+            if reset_enabled
+            else "这是演示站：免登录、数据不会自动清空，请勿存放敏感数据。"
+        ),
     }

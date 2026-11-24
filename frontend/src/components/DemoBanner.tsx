@@ -14,6 +14,8 @@ export interface DemoMeta {
   is_demo: boolean;
   guide_url: string;
   reset_cron: string;
+  /** false = 已关闭每日自动清空（旧后端不注入该字段，按 true 处理） */
+  reset_enabled?: boolean;
 }
 
 /** 读取后端注入的演示元信息（无则视为非演示站） */
@@ -64,6 +66,13 @@ function useDemoDismissed(): [boolean, () => void] {
   return [dismissed, dismiss];
 }
 
+/** 重置状态文案：关闭自动清空后不能再显示「每日 HH:MM 自动清空」 */
+function resetTip(meta: DemoMeta): string {
+  if (meta.reset_enabled === false) return "数据不会自动清空";
+  const cron = meta.reset_cron || "02:00";
+  return `数据每日 ${cron} 自动清空`;
+}
+
 // ============ 顶部提示条 ============
 export function DemoBanner() {
   const meta = getDemoMeta();
@@ -71,7 +80,6 @@ export function DemoBanner() {
   if (!meta?.is_demo || dismissed) return null;
 
   const guide = meta.guide_url || "https://ai-testgen.agentest.vip";
-  const cron = meta.reset_cron || "02:00";
 
   return (
     <div className="demo-banner" role="banner">
@@ -79,7 +87,7 @@ export function DemoBanner() {
       <span className="demo-banner-center">
         <span className="demo-banner-dot" aria-hidden="true" />
         <span className="demo-banner-text">
-          演示环境 · 数据每日 {cron} 自动清空，请勿存放真实数据
+          演示环境 · {resetTip(meta)}，请勿存放真实数据
         </span>
       </span>
       <a className="demo-banner-link" href={guide} target="_blank" rel="noopener noreferrer">
@@ -104,11 +112,10 @@ export function DemoEnvBadge() {
   const [dismissed] = useDemoDismissed();
   if (!meta?.is_demo || !dismissed) return null;
 
-  const cron = meta.reset_cron || "02:00";
   return (
     <span
       className="demo-env-badge"
-      title={`演示站：数据每日 ${cron} 自动清空，请勿存放真实数据`}
+      title={`演示站：${resetTip(meta)}，请勿存放真实数据`}
     >
       演示站
     </span>

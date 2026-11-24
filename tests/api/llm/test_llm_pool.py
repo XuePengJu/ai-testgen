@@ -562,7 +562,8 @@ def test_effective_pools_field(client, accounts, clean_pool):
     assert "embedding_source" in d
 
     pools = d["pools"]
-    assert set(pools) == {"text", "vision", "embedding"}
+    # V5.13 增加 rerank 槽位；这里与后端/LLMSlotGroup 的 SLOTS 保持一致
+    assert set(pools) == {"text", "vision", "embedding", "rerank"}
     assert pools["text"]["owner"] == "personal" and pools["text"]["total"] == 1
     assert pools["vision"]["total"] == 1 and pools["vision"]["hit"] == 1
     # 没配池的槽 → 未启用（不再像旧版那样因 source 只反映 text 槽而误判）

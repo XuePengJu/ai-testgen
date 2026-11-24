@@ -70,6 +70,11 @@ API_ENCRYPT = os.getenv("API_ENCRYPT", "1") == "1"
 # 设为 1：恢复旧「演示模式」，用于本地或现场演示开箱即跑。
 AITF_ALLOW_DEMO = os.getenv("AITF_ALLOW_DEMO", "0") == "1"
 
+# ============ 演示站模型同步（正式站 ↔ 演示站）============
+# 内部导出/导入接口的共享令牌（两站 .env 同值）；留空 = 内部接口一律 403。
+# 只走 127.0.0.1 直连，且拒绝带 X-Forwarded-For 的请求（挡掉经 Nginx 的公网访问）。
+MODEL_SYNC_TOKEN = os.getenv("AITF_MODEL_SYNC_TOKEN", "")
+
 # ============ 运维日志（M10） ============
 # root logger 落盘级别（DEBUG/INFO/WARNING/ERROR），见 app/core/logging_config.py
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

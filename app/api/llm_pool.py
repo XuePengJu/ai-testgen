@@ -19,13 +19,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin, require_user
+from app.core import demo_config
 from app.core.db import get_db
 from app.core.providers import FREE_PROVIDERS, is_provider, provider_label
 from app.core.utils import utcnow
 from app.models.llm_pool import LLMModelPool
 from app.models.user import User
 from app.schemas.llm_pool import PoolEnabledIn, PoolItemIn, PoolItemOut, PoolReorderIn
-from app.services import llm_pool, llm_service
+from app.services import llm_pool, llm_service, model_sync
 
 router = APIRouter()
 
@@ -310,6 +311,28 @@ def test_own_pool(slot: str, item_id: int, db: Session = Depends(get_db),
 
 
 # ============ 平台池路由（GET 登录可见；写操作仅 admin） ============
+
+@router.post("/llm/platform-pool/sync-demo")
+def sync_platform_pool_to_demo(db: Session = Depends(get_db),
+                               admin: User = Depends(require_admin)):
+    """把本实例（正式站）平台池同步到演示站。
+
+    仅正式站管理员可用；演示站实例 403（避免反向同步自己）。
+    固定路径必须注册在 `/{slot}` 之前，否则 "sync-demo" 会被当成 slot。
+    """
+    if demo_config.AITF_DEMO_ENABLED:
+        raise HTTPException(403, detail="演示站实例不能反向同步")
+    payload = model_sync.build_export_payload(db)
+    try:
+        result = model_sync.push_payload(payload)
+    except Exception as e:  # noqa: BLE001  网络/令牌/演示站异常统一转 502
+        raise HTTPException(502, detail=f"同步到演示站失败：{e}") from e
+    return {
+        "ok": True,
+        "exported": {slot: len(items) for slot, items in payload["slots"].items()},
+        **result,
+    }
+
 
 @router.get("/llm/platform-pool/{slot}", response_model=list[PoolItemOut])
 def list_platform_pool(slot: str, db: Session = Depends(get_db),

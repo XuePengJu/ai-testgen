@@ -23,6 +23,10 @@ import os
 AITF_DEMO_ENABLED = os.getenv("AITF_DEMO_ENABLED", "0") == "1"
 
 # ============ 每日重置任务 ============
+# 定时自动清空总开关：0 = 不注册每日 cron（手动 POST /api/demo/reset 仍可用）。
+# 默认 1 保持向后兼容；演示站不希望每天归零时在 .env.demo 置 0。
+AITF_DEMO_RESET_ENABLED = os.getenv("AITF_DEMO_RESET_ENABLED", "1") == "1"
+
 # 每天凌晨 AITF_DEMO_RESET_HOUR:AITF_DEMO_RESET_MINUTE 触发（Asia/Shanghai）
 AITF_DEMO_RESET_HOUR = int(os.getenv("AITF_DEMO_RESET_HOUR", "2"))
 AITF_DEMO_RESET_MINUTE = int(os.getenv("AITF_DEMO_RESET_MINUTE", "0"))
@@ -67,3 +71,19 @@ AITF_DEMO_KB_SEED_DIR = os.getenv("AITF_DEMO_KB_SEED_DIR", "")
 
 # 快照知识库归属的用户 id（演示站账号 id 与源实例不同，需重映射；0/空=沿用快照原值）
 AITF_DEMO_KB_OWNER_USER_ID = int(os.getenv("AITF_DEMO_KB_OWNER_USER_ID", "0") or 0)
+
+# ============ 正式站 → 演示站模型配置同步 ============
+# 演示站每 N 分钟从正式站内部导出接口拉取平台模型池，重新加密后写入自己的平台池。
+# 只在演示实例开启；正式站保持 0（正式站靠「同步到演示站」按钮主动 push）。
+AITF_DEMO_MODEL_SYNC_ENABLED = os.getenv("AITF_DEMO_MODEL_SYNC_ENABLED", "0") == "1"
+AITF_DEMO_MODEL_SYNC_INTERVAL_MIN = int(
+    os.getenv("AITF_DEMO_MODEL_SYNC_INTERVAL_MIN", "30") or 30
+)
+# 演示站拉取正式站的地址（同机直连 127.0.0.1，不经公网/Nginx）
+AITF_DEMO_MODEL_SYNC_MAIN_URL = os.getenv(
+    "AITF_DEMO_MODEL_SYNC_MAIN_URL", "http://127.0.0.1:8005"
+).rstrip("/")
+# 正式站 push 的目标（演示站 import 接口）
+AITF_DEMO_MODEL_SYNC_TARGET_URL = os.getenv(
+    "AITF_DEMO_MODEL_SYNC_TARGET_URL", "http://127.0.0.1:8006"
+).rstrip("/")

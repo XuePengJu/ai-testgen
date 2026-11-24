@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app.core import demo_config
 from app.core.db import SessionLocal
+from app.jobs import demo_reset as dr
 from app.jobs.demo_reset import reset_demo_data
 from app.models.task import Task
 from app.models.user import User
@@ -85,6 +86,7 @@ def _set_demo(monkeypatch, **overrides):
     """把 demo_config 模块属性切成目标值（端点运行时读取模块属性）。"""
     defaults = {
         "AITF_DEMO_ENABLED": True,
+        "AITF_DEMO_RESET_ENABLED": True,
         "AITF_DEMO_RESET_HOUR": 2,
         "AITF_DEMO_RESET_MINUTE": 0,
         "AITF_DEMO_GUIDE_URL": "https://ai-testgen.agentest.vip",
@@ -129,7 +131,22 @@ def test_demo_meta_returns_guide_and_cron(_demo_client, monkeypatch):
     assert d["is_demo"] is True
     assert d["guide_url"] == "https://example.com/formal"
     assert d["reset_cron"] == "02:00"
+    assert d["reset_enabled"] is True
     assert "自动清空" in d["notice"]
+
+
+@pytest.mark.title("演示站关闭自动清空后meta与Banner同步改口")
+def test_demo_meta_reports_reset_disabled(_demo_client, monkeypatch):
+    """AITF_DEMO_RESET_ENABLED=0：meta 与首页注入都不能再声称每日自动清空。"""
+    _set_demo(monkeypatch, AITF_DEMO_RESET_ENABLED=False)
+
+    d = _demo_client.get("/api/demo/meta").json()
+    assert d["reset_enabled"] is False
+    assert "不会自动清空" in d["notice"]
+    assert "每日自动清空" not in d["notice"]
+
+    html = _demo_client.get("/").text
+    assert "reset_enabled:false" in html.replace(" ", "")
 
 
 @pytest.mark.title("演示站首页注入Banner标识")
@@ -217,3 +234,34 @@ def test_prod_index_no_banner_injection(_demo_client, monkeypatch):
     _set_demo(monkeypatch, AITF_DEMO_ENABLED=False)
     html = _demo_client.get("/").text
     assert "__AITF_DEMO__" not in html
+
+
+# ---------- 每日重置调度器开关 ----------
+
+@pytest.fixture(autouse=True)
+def _no_demo_reset_scheduler():
+    dr.shutdown_demo_reset_scheduler()
+    yield
+    dr.shutdown_demo_reset_scheduler()
+
+
+@pytest.mark.title("关闭自动清空后不注册每日重置调度器")
+def test_demo_reset_scheduler_not_started_when_disabled(monkeypatch):
+    _set_demo(monkeypatch, AITF_DEMO_RESET_ENABLED=False)
+    dr.init_demo_reset_scheduler()
+    assert dr._scheduler is None
+
+
+@pytest.mark.title("开启时每日重置调度器契约正确且幂等")
+def test_demo_reset_scheduler_contract_when_enabled(monkeypatch):
+    _set_demo(monkeypatch, AITF_DEMO_RESET_ENABLED=True)
+    dr.init_demo_reset_scheduler()
+    assert dr._scheduler is not None
+    jobs = dr._scheduler.get_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].id == "demo_daily_reset"
+    assert jobs[0].max_instances == 1
+    assert jobs[0].coalesce is True
+
+    dr.init_demo_reset_scheduler()   # 幂等：不重复注册
+    assert len(dr._scheduler.get_jobs()) == 1

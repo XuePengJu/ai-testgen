@@ -12,7 +12,9 @@ import { useAuth } from "../hooks/useAuth";
 import PageHead from "../components/common/PageHead";
 import { useSettingsStore } from "../store/settingsStore";
 import LLMSlotGroup from "../components/settings/LLMSlotGroup";
+import SyncToDemoCard from "../components/settings/SyncToDemoCard";
 import EffectiveBar from "../components/settings/EffectiveBar";
+import { isDemo } from "../components/DemoBanner";
 
 export default function ModelConfigPage() {
   const { me, role } = useAuth();
@@ -86,11 +88,14 @@ export default function ModelConfigPage() {
               mode="personal"
             />
           ) : (
-            <LLMSlotGroup
-              title="平台默认模型池（兜底）"
-              intro="未配置个人模型的用户（含访客）使用平台池调度；免费厂商不填 Key 时由服务器环境变量提供。个人池优先于此处。"
-              mode="platform"
-            />
+            <>
+              {!isDemo() && <SyncToDemoCard />}
+              <LLMSlotGroup
+                title="平台默认模型池（兜底）"
+                intro="未配置个人模型的用户（含访客）使用平台池调度；免费厂商不填 Key 时由服务器环境变量提供。个人池优先于此处。"
+                mode="platform"
+              />
+            </>
           )}
         </>
       ) : (

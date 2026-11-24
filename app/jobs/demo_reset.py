@@ -2,6 +2,7 @@
 
 职责：每天 AITF_DEMO_RESET_HOUR:MINUTE（默认 02:00）清空演示库全部业务
 数据，并按需重播种示例数据，让演示站「每天都像新的一样」。
+AITF_DEMO_RESET_ENABLED=0 时只停定时任务；手动 POST /api/demo/reset 仍可用。
 
 设计要点：
 - 复用 app/services/user_purge.purge_user_data（唯一级联清理入口，
@@ -111,6 +112,9 @@ def init_demo_reset_scheduler() -> None:
     global _scheduler
     if not demo_config.AITF_DEMO_ENABLED:
         logger.info("AITF_DEMO_ENABLED=0，演示站重置调度器不启动")
+        return
+    if not demo_config.AITF_DEMO_RESET_ENABLED:
+        logger.info("AITF_DEMO_RESET_ENABLED=0，演示站每日自动重置不启动（手动接口仍可用）")
         return
     with _lock:
         if _scheduler is not None:

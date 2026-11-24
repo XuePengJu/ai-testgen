@@ -25,7 +25,8 @@ def manual_reset(
 ):
     """手动触发演示站数据重置（仅演示实例管理员可调）。
 
-    正常无需使用 —— 每天 02:00 自动执行；此接口用于联调/演示前快速归零。
+    定时自动重置仅在 AITF_DEMO_RESET_ENABLED=1 时运行；关闭后此接口仍可用于
+    联调/演示前快速归零。
     """
     _require_demo_enabled()
     counts = reset_demo_data(db)
