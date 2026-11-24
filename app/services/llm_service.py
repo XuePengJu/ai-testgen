@@ -674,8 +674,12 @@ def test_connectivity(base_url: str, api_key: str, model: str, kind: str = "chat
             }
         reply = OpenAICompatClient(base_url, api_key, model).chat(
             [{"role": "user", "content": "回复「ok」两个字即可。"}],
-            temperature=0, max_tokens=16,
-            enable_thinking=False,   # 连通测试只验 Key/端点/模型，无需思考（省时）
+            # 思考模型的 reasoning token 计入 max_tokens，且部分端点（如元景 MaaS 的
+            # deepseek-v4.1-flash）不认 enable_thinking，必先思考上百 token；给少了
+            # 预算全耗在思考上 → content 为空 → 被误判成「模型返回空内容」。
+            # 2000 足够覆盖思考链（连通测试只验 Key/端点/模型，不必给到对话的 128K）。
+            temperature=0, max_tokens=2000,
+            enable_thinking=False,   # 认这个参数的端点可少花思考预算
         )
         return {
             "ok": True,

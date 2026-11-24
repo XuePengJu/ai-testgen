@@ -17,6 +17,7 @@ from datetime import timedelta
 from app.core import config
 from app.core.utils import utcnow
 from app.services.langchain_client import (
+    DEFAULT_MAX_TOKENS,
     EMPTY_CONTENT_MSG,
     LangChainClient,
     _HttpxCompatClient,
@@ -202,7 +203,8 @@ class PoolClient:
 
     # ---------- 对外接口 ----------
 
-    def chat(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat(self, messages: list, temperature: float = 0.3,
+             max_tokens: int = DEFAULT_MAX_TOKENS,
              timeout: float = _TIMEOUT, enable_thinking: bool | None = None) -> str:
         errors: list[str] = []
         for cand in self._ordered():
@@ -239,7 +241,8 @@ class PoolClient:
             return out
         raise LLMError(self._summary(errors))
 
-    def chat_stream(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat_stream(self, messages: list, temperature: float = 0.3,
+                    max_tokens: int = DEFAULT_MAX_TOKENS,
                     timeout: float = _TIMEOUT, enable_thinking: bool | None = None):
         """流式：事件协议与单条客户端一致（think / delta / done / error）。
 

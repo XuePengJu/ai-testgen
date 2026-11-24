@@ -21,7 +21,53 @@ import httpx
 from langchain.chat_models import init_chat_model
 from openai import APIStatusError, APIConnectionError, APITimeoutError
 
+from app.core import config
+
 _TIMEOUT = 180  # 生成用例常规超时（免费模型慢，放宽到 3 分钟）
+
+# 对话/生成输出上限默认值（AITF_LLM_MAX_TOKENS，默认 128K）。
+# 8K 输出对长用例表 / 长回答太紧，128K 足够覆盖常规场景。
+DEFAULT_MAX_TOKENS = getattr(config, "AITF_LLM_MAX_TOKENS", 131072)
+
+# 端点 max_tokens 上限记忆（base_url|model → 服务端允许的最大值）。
+# 各厂商上限不一（魔搭 131072、百炼部分模型 300K+），写死任一个都会误伤；
+# 首次 400 报错里带范围，学一次即可，后续同端点请求直接降档。
+_MAX_TOKENS_CAP: dict[str, int] = {}
+_MAX_TOKENS_FALLBACK = 8192        # 报错里读不出具体数字时的保守档
+# langchain-openai 会把 max_tokens 转成 max_completion_tokens 发出，报错文案两种都认
+_TOKENS_PARAM_RE = re.compile(r"max(?:_completion)?_tokens", re.I)
+_MAX_TOKENS_RANGE_RE = re.compile(
+    r"max(?:_completion)?_tokens[^\[]{0,40}\[\s*1\s*,\s*(\d+)\s*\]", re.I)
+_MAX_TOKENS_ANY_RE = re.compile(r"max(?:_completion)?_tokens[^\d]{0,40}(\d{2,7})", re.I)
+
+
+def _max_tokens_for(ep_key: str, requested: int) -> int:
+    """按已学到的端点上限裁剪请求值（没学过则原样返回）。"""
+    cap = _MAX_TOKENS_CAP.get(ep_key)
+    return min(requested, cap) if cap else requested
+
+
+def _learn_max_tokens(ep_key: str, requested: int, err: str) -> int:
+    """从 400 报错里学该端点的 max_tokens 上限。
+
+    返回降档后的值（>0 表示值得按新值重发；0 表示不是 max_tokens 越界，不重发）。
+    典型报错：``Range of max_tokens should be [1, 131072]``。
+    """
+    if not _TOKENS_PARAM_RE.search(err or ""):
+        return 0
+    m = _MAX_TOKENS_RANGE_RE.search(err) or _MAX_TOKENS_ANY_RE.search(err)
+    cap = 0
+    if m:
+        try:
+            cap = int(m.group(1))
+        except (TypeError, ValueError):
+            cap = 0
+    if cap <= 0:
+        cap = _MAX_TOKENS_FALLBACK
+    if cap >= requested:
+        return 0
+    _MAX_TOKENS_CAP[ep_key] = cap
+    return cap
 
 # 空正文（HTTP 成功但正文一个字符都没有）的统一错误文案。
 # 空正文不能当成功返回 ""：调用方（用例生成）只会「白等一个来回 + 静默 0 条」，
@@ -249,7 +295,8 @@ class LangChainClient:
             kwargs["extra_body"] = {"enable_thinking": bool(enable_thinking)}
         return init_chat_model(**kwargs)
 
-    def chat(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat(self, messages: list, temperature: float = 0.3,
+             max_tokens: int = DEFAULT_MAX_TOKENS,
              timeout: float = _TIMEOUT, enable_thinking: bool | None = None) -> str:
         """stream 收集模式：逐 chunk 拼完整文本返回（对外行为同旧 chat）。
 
@@ -262,10 +309,15 @@ class LangChainClient:
         仍为空才抛 LLMError（交给模型池切换候选）。原实现直接返回 ""，
         调用方只能白等一个来回并静默产出 0 条用例。
         真错误（鉴权 / 限流 / 网络）不重试，直接抛错换候选更划算。
+
+        输出上限默认 DEFAULT_MAX_TOKENS（128K，可 AITF_LLM_MAX_TOKENS 覆盖）；
+        端点上限更低时按 400 报错降档重发（见 _learn_max_tokens）。
         """
         t0 = time.perf_counter()
         _pchars = _prompt_chars(messages)
         _preview = _messages_preview(messages)
+        ep_key = f"{self.base_url}|{self.model}"
+        max_tokens = _max_tokens_for(ep_key, max_tokens)
         last_err = ""
         attempt = 0
         while True:
@@ -278,6 +330,12 @@ class LangChainClient:
                 err = str(e)
             except APIStatusError as e:
                 err = f"HTTP {e.status_code}：{_err_detail(e)}"
+                if e.status_code == 400:
+                    # max_tokens 超过端点上限 → 学到真实上限后降档重发（不占空正文重试预算）
+                    smaller = _learn_max_tokens(ep_key, max_tokens, err)
+                    if smaller:
+                        max_tokens = smaller
+                        continue
             except (APIConnectionError, APITimeoutError) as e:
                 err = f"网络错误：{e.__class__.__name__}"
             except Exception as e:  # noqa: BLE001
@@ -304,7 +362,8 @@ class LangChainClient:
         return self.chat([{"role": "user", "content": prompt}],
                          enable_thinking=enable_thinking)
 
-    def chat_stream(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat_stream(self, messages: list, temperature: float = 0.3,
+                    max_tokens: int = DEFAULT_MAX_TOKENS,
                     timeout: float = _TIMEOUT, enable_thinking: bool | None = None):
         """stream 逐段模式：yield (event, payload)。事件协议与旧实现完全一致。
 
@@ -314,6 +373,7 @@ class LangChainClient:
         - error：错误描述（调用方据此降级 mock）
         """
         ep_key = f"{self.base_url}|{self.model}"
+        max_tokens = _max_tokens_for(ep_key, max_tokens)
         injected = enable_thinking is not None and ep_key not in _NO_THINKING_PARAM
         retried = False
         t0 = time.perf_counter()
@@ -336,12 +396,19 @@ class LangChainClient:
                             full += delta
                             yield ("delta", delta)
                 except APIStatusError as e:
-                    if not retried and injected and e.status_code == 400:
-                        # 端点不认 enable_thinking → 去掉参数重试一次，并记住该端点
-                        _NO_THINKING_PARAM.add(ep_key)
-                        retried = True
-                        continue
-                    err = f"HTTP {e.status_code}：{_err_detail(e)}"
+                    msg = f"HTTP {e.status_code}：{_err_detail(e)}"
+                    if e.status_code == 400:
+                        # max_tokens 超过端点上限 → 学到真实上限后降档重发
+                        smaller = _learn_max_tokens(ep_key, max_tokens, msg)
+                        if smaller:
+                            max_tokens = smaller
+                            continue
+                        if not retried and injected:
+                            # 端点不认 enable_thinking → 去掉参数重试一次，并记住该端点
+                            _NO_THINKING_PARAM.add(ep_key)
+                            retried = True
+                            continue
+                    err = msg
                     yield ("error", err)
                     return
                 except (APIConnectionError, APITimeoutError) as e:
@@ -429,14 +496,16 @@ class _HttpxCompatClient:
         # V5.12 用量埋点上下文：由 llm_pool.build_client / PoolClient 注入
         self.usage_meta: dict | None = None
 
-    def chat(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat(self, messages: list, temperature: float = 0.3,
+             max_tokens: int = DEFAULT_MAX_TOKENS,
              timeout: float = _TIMEOUT, enable_thinking: bool | None = None) -> str:
         """httpx 直连版 chat；空正文兜底与 LangChainClient.chat 同一套语义。"""
+        ep_key = f"{self.base_url}|{self.model}"
         payload = {
             "model": self.model, "messages": messages,
-            "temperature": temperature, "max_tokens": max_tokens,
+            "temperature": temperature,
+            "max_tokens": _max_tokens_for(ep_key, max_tokens),
         }
-        ep_key = f"{self.base_url}|{self.model}"
         if enable_thinking is not None and ep_key not in _NO_THINKING_PARAM:
             payload["enable_thinking"] = bool(enable_thinking)
         t0 = time.perf_counter()
@@ -451,6 +520,11 @@ class _HttpxCompatClient:
                 content = data["choices"][0]["message"]["content"]
             except LLMError as e:
                 err = str(e)
+                if err.startswith("HTTP 400"):
+                    smaller = _learn_max_tokens(ep_key, payload["max_tokens"], err)
+                    if smaller:
+                        payload["max_tokens"] = smaller
+                        continue   # max_tokens 越界：降档重发，不占空正文重试预算
             except (KeyError, IndexError, TypeError):
                 err = "响应缺少 choices[0].message.content"
 
@@ -485,16 +559,18 @@ class _HttpxCompatClient:
         return self.chat([{"role": "user", "content": prompt}],
                          enable_thinking=enable_thinking)
 
-    def chat_stream(self, messages: list, temperature: float = 0.3, max_tokens: int = 8192,
+    def chat_stream(self, messages: list, temperature: float = 0.3,
+                    max_tokens: int = DEFAULT_MAX_TOKENS,
                     timeout: float = _TIMEOUT, enable_thinking: bool | None = None):
         """流式 chat_completions（httpx SSE）：事件协议同 LangChainClient。"""
         url = self.base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        ep_key = f"{self.base_url}|{self.model}"
         payload = {
             "model": self.model, "messages": messages,
-            "temperature": temperature, "max_tokens": max_tokens, "stream": True,
+            "temperature": temperature,
+            "max_tokens": _max_tokens_for(ep_key, max_tokens), "stream": True,
         }
-        ep_key = f"{self.base_url}|{self.model}"
         if enable_thinking is not None and ep_key not in _NO_THINKING_PARAM:
             payload["enable_thinking"] = bool(enable_thinking)
 
@@ -505,19 +581,30 @@ class _HttpxCompatClient:
         try:
             full = ""
             think_full = ""
-            for attempt in (0, 1):
+            retries_left = 2      # max_tokens 降档 1 次 + enable_thinking 摘参 1 次
+            while True:
                 full, think_full = "", ""
                 try:
                     with httpx.Client(timeout=timeout) as hc:
                         with hc.stream("POST", url, headers=headers, json=payload) as r:
                             if r.status_code != 200:
                                 body = r.read().decode("utf-8", errors="ignore")[:300]
-                                # 端点不认 enable_thinking（400）→ 去掉参数重试一次，并记住该端点
-                                if attempt == 0 and r.status_code == 400 and "enable_thinking" in payload:
-                                    _NO_THINKING_PARAM.add(ep_key)
-                                    payload.pop("enable_thinking", None)
-                                    continue
-                                err = f"HTTP {r.status_code}：{body}"
+                                msg = f"HTTP {r.status_code}：{body}"
+                                if r.status_code == 400 and retries_left > 0:
+                                    # max_tokens 超过端点上限 → 降档重发
+                                    smaller = _learn_max_tokens(
+                                        ep_key, payload["max_tokens"], msg)
+                                    if smaller:
+                                        payload["max_tokens"] = smaller
+                                        retries_left -= 1
+                                        continue
+                                    # 端点不认 enable_thinking → 去掉参数重试，并记住该端点
+                                    if "enable_thinking" in payload:
+                                        _NO_THINKING_PARAM.add(ep_key)
+                                        payload.pop("enable_thinking", None)
+                                        retries_left -= 1
+                                        continue
+                                err = msg
                                 yield ("error", err)
                                 return
                             for line in r.iter_lines():

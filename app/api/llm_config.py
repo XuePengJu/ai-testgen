@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import AITF_LLM_MAX_TOKENS
 from app.core.db import get_db
 from app.core.providers import PROVIDERS
 from app.models.llm_pool import LLMModelPool
@@ -205,7 +206,7 @@ def chat(body: ChatIn,
         # V5.0 P1：模型池优先（撞限流自动切换）；池空回落单条生效配置
         client = llm_pool.build_client(db, user, "text") or llm_service.OpenAICompatClient(
             cfg["base_url"], cfg["api_key"], cfg["model"])
-        reply = client.chat(messages, temperature=0.5, max_tokens=2048)
+        reply = client.chat(messages, temperature=0.5, max_tokens=AITF_LLM_MAX_TOKENS)
         return {
             "reply": reply,
             "source": eff.get("source"),

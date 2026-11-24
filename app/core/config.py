@@ -88,6 +88,14 @@ AITF_LLM_BACKEND = os.getenv("AITF_LLM_BACKEND", "langchain").strip().lower()
 if AITF_LLM_BACKEND not in ("langchain", "httpx"):
     AITF_LLM_BACKEND = "langchain"
 
+# 对话/生成请求的输出上限（max_tokens 的默认值）。8K 输出对长用例表/长回答太紧，
+# 默认放到 128K（131072）；端点如果上限更低（如部分百炼模型 8192），客户端会从
+# 400 报错里学到真实上限并自动降档重发，不需要逐家配。
+try:
+    AITF_LLM_MAX_TOKENS = int(os.getenv("AITF_LLM_MAX_TOKENS", "131072"))
+except ValueError:  # 配错不拖垮启动，回落默认
+    AITF_LLM_MAX_TOKENS = 131072
+
 # 内置的用例生成核心库（已整合，使项目自包含、clone 即跑）
 GENERATOR_CORE_DIR = BASE_DIR / "generator_core"
 
