@@ -66,11 +66,11 @@ function useDemoDismissed(): [boolean, () => void] {
   return [dismissed, dismiss];
 }
 
-/** 重置状态文案：关闭自动清空后不能再显示「每日 HH:MM 自动清空」 */
+/** 重置状态前缀：关闭自动清空时不再展示这段，只保留「请勿存放真实数据」 */
 function resetTip(meta: DemoMeta): string {
-  if (meta.reset_enabled === false) return "数据不会自动清空";
+  if (meta.reset_enabled === false) return "";
   const cron = meta.reset_cron || "02:00";
-  return `数据每日 ${cron} 自动清空`;
+  return `数据每日 ${cron} 自动清空，`;
 }
 
 // ============ 顶部提示条 ============
@@ -87,7 +87,7 @@ export function DemoBanner() {
       <span className="demo-banner-center">
         <span className="demo-banner-dot" aria-hidden="true" />
         <span className="demo-banner-text">
-          演示环境 · {resetTip(meta)}，请勿存放真实数据
+          演示环境 · {resetTip(meta)}请勿存放真实数据
         </span>
       </span>
       <a className="demo-banner-link" href={guide} target="_blank" rel="noopener noreferrer">
@@ -115,7 +115,7 @@ export function DemoEnvBadge() {
   return (
     <span
       className="demo-env-badge"
-      title={`演示站：${resetTip(meta)}，请勿存放真实数据`}
+      title={`演示站：${resetTip(meta)}请勿存放真实数据`}
     >
       演示站
     </span>
