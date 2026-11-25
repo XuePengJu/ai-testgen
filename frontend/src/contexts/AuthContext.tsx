@@ -98,40 +98,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [apply]);
 
+  /** 演示模式：拿免登录 admin token；成功写入登录态并返回 true。 */
+  const enterDemo = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(withBase("/api/demo/token"), { method: "POST" });
+      const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse>;
+      if (r.ok && d.access_token) {
+        apply({
+          token: d.access_token,
+          encKey: d.enc_key || "",
+          me: {
+            id: -1,
+            username: d.username || "admin",
+            email: null,
+            role: "admin",
+            is_active: true,
+          },
+        });
+        // 补齐真实 me.id（-1 是占位；知识库「我的个人库」匹配依赖真实 id）
+        void refreshMe();
+        return true;
+      }
+    } catch {
+      /* 后端不可达：交给调用方兜底 */
+    }
+    return false;
+  }, [apply, refreshMe]);
+
   /* 初始化：refreshMe + 首开静默访客（旧版 refreshMe/enterGuestSilently 行为）
-   * V9.0：演示模式优先 —— 后端注入 __AITF_DEMO__ 时，无 token 直接走
-   * /api/demo/token 免登录进入 admin，不再弹登录框 / 不静默进 guest。 */
+   * V9.7：演示模式（主站即演示站）每次打开都强制重新进入 admin ——
+   * 先清掉 localStorage 里可能残留的旧正式站 token / 旧演示站 guest token，
+   * 再拿新 demo token，杜绝「旧 token 失效 → 弹登录框」和身份不是 admin。
+   */
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
     (async () => {
-      if (!state.token) {
-        const demo = getDemoMeta();
-        if (demo?.is_demo) {
-          try {
-            const r = await fetch(withBase("/api/demo/token"), { method: "POST" });
-            const d = (await r.json().catch(() => ({}))) as Partial<AuthResponse>;
-            if (r.ok && d.access_token) {
-              apply({
-                token: d.access_token,
-                encKey: d.enc_key || "",
-                me: {
-                  id: -1,
-                  username: d.username || "admin",
-                  email: null,
-                  role: "admin",
-                  is_active: true,
-                },
-              });
-              // 补齐真实 me.id（-1 是占位；知识库「我的个人库」匹配依赖真实 id）
-              void refreshMe();
-              setReady(true);
-              return;
-            }
-          } catch {
-            /* 后端不可达：回落原有访客/登录逻辑 */
-          }
+      if (getDemoMeta()?.is_demo) {
+        clearPersisted();
+        const empty: AuthSnapshot = { token: "", encKey: "", me: null };
+        setAuthSnapshot(empty);
+        setState(empty);
+        if (await enterDemo()) {
+          setReady(true);
+          return;
         }
+        // demo token 都拿不到（后端不可用/配置错误）才回退登录框
+        setLoginModal({ open: true, mode: "login" });
+        setReady(true);
+        return;
+      }
+      if (!state.token) {
         let manual = false;
         try {
           manual = sessionStorage.getItem("atf_manual_logout") === "1";
@@ -192,17 +209,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* client.ts 发出的 401 失效事件 → 立即清态弹登录（与旧版 reload 效果一致但更快） */
+  /* client.ts 发出的 401 失效事件 → 演示模式静默重进 admin，其他模式弹登录 */
   useEffect(() => {
     const onInvalid = () => {
       clearPersisted();
-      setAuthSnapshot({ token: "", encKey: "", me: null });
-      setState({ token: "", encKey: "", me: null });
+      const empty: AuthSnapshot = { token: "", encKey: "", me: null };
+      setAuthSnapshot(empty);
+      setState(empty);
+      if (getDemoMeta()?.is_demo) {
+        void enterDemo().then((ok) => {
+          if (!ok) setLoginModal({ open: true, mode: "login" });
+        });
+        return;
+      }
       setLoginModal({ open: true, mode: "login" });
     };
     window.addEventListener("aitf-logout-invalid", onInvalid);
     return () => window.removeEventListener("aitf-logout-invalid", onInvalid);
-  }, []);
+  }, [enterDemo]);
 
   /* ===== 明文通道认证动作（与旧版 doAuth/doGuest 一致） ===== */
 

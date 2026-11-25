@@ -49,6 +49,12 @@ def _get_or_create_admin(db: Session) -> User:
         )
     ).scalar_one_or_none()
     if admin:
+        # 单站演示模式下任何人都是 admin，可能在用户管理里把 admin 禁用；
+        # 这里自动恢复 active，避免自动登录拿到 token 后 /auth/me 一直 401。
+        if not admin.is_active:
+            admin.is_active = True
+            db.commit()
+            db.refresh(admin)
         return admin
     user = User(
         username=demo_config.AITF_DEMO_ADMIN_USERNAME,

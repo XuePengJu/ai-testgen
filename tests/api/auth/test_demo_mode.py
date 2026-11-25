@@ -121,6 +121,30 @@ def test_demo_token_returns_admin_jwt(_demo_client, monkeypatch):
     assert me.json()["role"] == "admin"
 
 
+@pytest.mark.title("演示admin被禁用后取token自动恢复")
+def test_demo_token_reactivates_inactive_admin(_demo_client, monkeypatch):
+    """单站演示模式下 admin 可能被访客禁用，取 token 应自动恢复 active。"""
+    _set_demo(monkeypatch)
+    _demo_client.post("/api/demo/token")  # 确保 admin 存在
+
+    db = SessionLocal()
+    try:
+        admin = db.execute(select(User).where(
+            User.username == "admin", User.role == "admin",
+        )).scalar_one()
+        admin.is_active = False
+        db.commit()
+    finally:
+        db.close()
+
+    r = _demo_client.post("/api/demo/token")
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+    me = _demo_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+
+
 @pytest.mark.title("演示站meta返回引导链接与重置时间")
 def test_demo_meta_returns_guide_and_cron(_demo_client, monkeypatch):
     """演示模式：meta 返回引导链接与重置时间文案。"""

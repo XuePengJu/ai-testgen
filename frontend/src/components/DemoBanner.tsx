@@ -79,7 +79,8 @@ export function DemoBanner() {
   const [dismissed, dismiss] = useDemoDismissed();
   if (!meta?.is_demo || dismissed) return null;
 
-  const guide = meta.guide_url || "https://ai-testgen.agentest.vip";
+  // guide_url 为空 = 没有正式站可跳（单站演示模式）→ 不渲染链接
+  const guide = meta.guide_url;
 
   return (
     <div className="demo-banner" role="banner">
@@ -90,9 +91,11 @@ export function DemoBanner() {
           演示环境 · {resetTip(meta)}请勿存放真实数据
         </span>
       </span>
-      <a className="demo-banner-link" href={guide} target="_blank" rel="noopener noreferrer">
-        前往正式站 →
-      </a>
+      {guide ? (
+        <a className="demo-banner-link" href={guide} target="_blank" rel="noopener noreferrer">
+          前往正式站 →
+        </a>
+      ) : null}
       <button
         type="button"
         className="demo-banner-close"
